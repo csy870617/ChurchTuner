@@ -8,7 +8,6 @@ const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 
 // --- 전역 변수 ---
 let currentInstrument = 'guitar';
-let targetFrequency = null;
 let audioContext = null; 
 let analyser = null; 
 let mediaStream = null;
@@ -42,9 +41,7 @@ const centsEl = document.getElementById('cents');
 const tuningIndicator = document.getElementById('tuning-indicator');
 const statusDot = document.getElementById('status-dot');
 const guideMsg = document.getElementById('guide-msg');
-const modeBadge = document.getElementById('mode-badge');
 const stringContainer = document.getElementById('string-container');
-const resetModeBtn = document.getElementById('reset-mode-btn');
 const instCards = document.querySelectorAll('.inst-card');
 
 function init() {
@@ -55,25 +52,12 @@ function init() {
             card.classList.add('active');
             currentInstrument = card.dataset.type;
             tunedStrings.clear(); // 악기 변경 시 기록 초기화
-            resetTarget();
+            resetUI(false);
             renderStringButtons(currentInstrument);
         });
     });
-    resetModeBtn.addEventListener('click', resetTarget);
     startBtn.addEventListener('click', toggleTuner);
-    
     requestAnimationFrame(updateVisualizer);
-}
-
-function resetTarget() {
-    targetFrequency = null;
-    isNoteLocked = false;
-    modeBadge.textContent = "AUTO MODE";
-    modeBadge.classList.remove('manual');
-    resetModeBtn.classList.add('hidden');
-    highlightStringBtn(null);
-    guideMsg.textContent = isRunning ? "PLAY A STRING..." : "READY TO TUNE";
-    guideMsg.style.color = "var(--text-secondary)";
 }
 
 function renderStringButtons(instType) {
@@ -85,44 +69,12 @@ function renderStringButtons(instType) {
         btn.className = 'string-btn';
         btn.dataset.note = str.note; btn.dataset.octave = str.octave;
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
-        
-        // 버튼 클릭 이벤트 (수정됨: 튜너 정지 방지)
-        btn.addEventListener('click', async () => {
-            // 오디오 컨텍스트가 없거나 멈춰있으면 시작 시도
-            if (!audioContext) {
-                // 아직 튜너가 안 켜졌으면 그냥 켜지 않고 소리만 나게 할 수도 있지만, 
-                // 보통은 사용자가 튜닝을 하려는 의도이므로 오디오 엔진을 준비합니다.
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            
-            if (audioContext.state === 'suspended') {
-                await audioContext.resume();
-            }
-
-            playReferenceTone(str.freq);
-            setTargetMode(str.freq, str.note, str.octave, btn);
-            
-            // 만약 튜너가 꺼져있었다면 켜기 (선택사항, 여기선 유지)
-            // if (!isRunning) startTuner();
-        });
+        // 클릭 이벤트 제거됨 (표시 전용)
         stringContainer.appendChild(btn);
     });
 }
 
-function setTargetMode(freq, note, octave, btnElem) {
-    targetFrequency = freq;
-    isNoteLocked = false;
-    document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('detected', 'locked', 'manual-target'));
-    btnElem.classList.add('manual-target');
-    modeBadge.textContent = `TARGET: ${note}${octave}`;
-    modeBadge.classList.add('manual');
-    resetModeBtn.classList.remove('hidden');
-    guideMsg.textContent = "TUNE TO TARGET";
-    guideMsg.style.color = "var(--accent-yellow)";
-}
-
 function highlightStringBtn(noteName, octave, isLocked) {
-    if (targetFrequency) return;
     const btns = document.querySelectorAll('.string-btn');
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
@@ -139,24 +91,15 @@ function highlightStringBtn(noteName, octave, isLocked) {
     });
 }
 
-function playReferenceTone(freq) {
+function playSuccessSound() {
     if (!audioContext) return;
-    
-    // 마이크 스트림과는 별개로 오실레이터 생성 -> 출력 (마이크 방해 안함)
+    const t = audioContext.currentTime;
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
-    osc.type = 'sawtooth'; 
-    osc.frequency.setValueAtTime(freq, audioContext.currentTime);
-    
-    // 볼륨 조절
-    gain.gain.setValueAtTime(0.1, audioContext.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.0);
-    
-    osc.connect(gain); 
-    gain.connect(audioContext.destination);
-    
-    osc.start(); 
-    osc.stop(audioContext.currentTime + 1.0);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t); 
+    gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    osc.connect(gain); gain.connect(audioContext.destination);
+    osc.start(); osc.stop(t + 0.6);
 }
 
 function toggleTuner() {
@@ -242,13 +185,7 @@ function processAudio() {
 
     if (stableBuffer.length >= STABILITY_THRESHOLD) {
         const avgPitch = stableBuffer.reduce((a, b) => a + b) / stableBuffer.length;
-        if (targetFrequency) {
-            // 수동 모드 범위 체크 (넓게 잡음)
-            const ratio = avgPitch / targetFrequency;
-            if (ratio > 0.7 && ratio < 1.3) updateTuner(avgPitch);
-        } else {
-            updateTuner(avgPitch);
-        }
+        updateTuner(avgPitch);
     }
     requestAnimationFrame(processAudio);
 }
@@ -265,7 +202,6 @@ function yinPitchDetection(buffer, sampleRate) {
     if (rms < 0.01) return -1; 
 
     const yinBuffer = new Float32Array(bufferSize / 2);
-    
     yinBuffer[0] = 1;
     let runningSum = 0;
     
@@ -332,16 +268,8 @@ function updateTuner(frequency) {
             isNoteLocked = true;
             lockedNote = noteName;
             
-            tunedStrings.add(noteName + octave); // 기록 저장
-            
-            // 알림음 재생
-            const osc = audioContext.createOscillator();
-            const gain = audioContext.createGain();
-            osc.type = 'sine'; osc.frequency.setValueAtTime(880, audioContext.currentTime); 
-            gain.gain.setValueAtTime(0.2, audioContext.currentTime); 
-            gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
-            osc.connect(gain); gain.connect(audioContext.destination);
-            osc.start(); osc.stop(audioContext.currentTime + 0.6);
+            tunedStrings.add(noteName + octave); // 완료된 줄 저장
+            playSuccessSound();
         }
     } else if (Math.abs(cents) > 10) {
         isNoteLocked = false;

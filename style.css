@@ -1,13 +1,15 @@
 :root {
     --bg-main: #030305;
-    --bg-panel: #0a0a0f;
-    --bg-card: #13131a;
     --text-primary: #ffffff;
     --text-secondary: #8a8a9b;
     --accent-green: #00ff9d;
     --accent-blue: #00e1ff;
     --accent-pink: #ff006a;
     --accent-yellow: #ffd900;
+    
+    /* 카드 배경색 약간 투명하게 변경 */
+    --bg-card: rgba(30, 30, 40, 0.5);
+    
     --font-heading: 'Inter', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 }
@@ -18,46 +20,45 @@ body {
     background-color: var(--bg-main);
     color: var(--text-primary);
     font-family: var(--font-heading);
-    display: flex; justify-content: center; align-items: center;
-    min-height: 100dvh; /* 모바일 브라우저 주소창 대응 */
-    margin: 0; padding: 20px;
-    overflow: hidden;
+    margin: 0; 
+    padding: 0;
+    overflow: hidden; /* 스크롤 방지 */
+    height: 100dvh; /* 모바일 주소창 대응 */
 }
 
 .bg-fx {
     position: fixed; top: -50%; left: -50%; width: 200%; height: 200%;
-    background: radial-gradient(circle at center, rgba(0, 255, 157, 0.03) 0%, rgba(3, 3, 5, 0) 60%);
+    background: radial-gradient(circle at center, rgba(0, 255, 157, 0.05) 0%, rgba(3, 3, 5, 0) 70%);
     z-index: -1; pointer-events: none;
 }
 
-/* [반응형 컨테이너] */
+/* [수정됨] 전체 화면 컨테이너 */
 .container {
     width: 100%;
-    max-width: 420px; /* 너무 커지지 않게 제한 */
     height: 100%;
-    max-height: 900px;
-    background: var(--bg-panel); 
-    padding: 1.5rem;
-    border-radius: 24px; 
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.05); 
-    text-align: center;
-    position: relative; 
-    backdrop-filter: blur(10px);
-    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 1.5rem; /* 화면 가장자리 여백 */
+    display: flex; 
+    flex-direction: column; 
+    justify-content: space-between;
+    /* 박스 스타일 제거 */
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
 }
 
 .header-badge {
     display: inline-flex; align-items: center; gap: 10px;
     background: var(--bg-card); padding: 8px 16px; border-radius: 100px;
-    border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 10px;
     align-self: center;
+    backdrop-filter: blur(5px);
 }
 h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 .version {
     font-size: 0.6rem; font-weight: 800; background: linear-gradient(45deg, var(--accent-green), var(--accent-blue));
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    padding-left: 5px; border-left: 1px solid #333;
+    padding-left: 5px; border-left: 1px solid #555;
 }
 .status-indicator {
     width: 6px; height: 6px; border-radius: 50%; background-color: #333;
@@ -67,10 +68,10 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 
 .section-label {
     font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-secondary);
-    text-align: left; margin-bottom: 10px; letter-spacing: 1px; opacity: 0.7;
+    text-align: left; margin-bottom: 8px; letter-spacing: 1px; opacity: 0.8;
 }
 
-.instrument-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
+.instrument-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
 .inst-card {
     background: var(--bg-card); border-radius: 12px; padding: 12px 5px;
     cursor: pointer; transition: all 0.3s; border: 1px solid rgba(255, 255, 255, 0.05);
@@ -79,11 +80,11 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 .inst-icon { font-size: 1.5rem; margin-bottom: 5px; filter: grayscale(100%) opacity(0.5); }
 .inst-info { display: flex; flex-direction: column; gap: 2px; }
 .inst-info .name { font-size: 0.7rem; font-weight: 800; color: var(--text-secondary); }
-.inst-info .detail { font-family: var(--font-mono); font-size: 0.5rem; color: #555; }
+.inst-info .detail { font-family: var(--font-mono); font-size: 0.5rem; color: #666; }
 
 .inst-card.active {
-    background: linear-gradient(145deg, rgba(0, 255, 157, 0.05), var(--bg-card));
-    border-color: var(--accent-green); transform: translateY(-2px);
+    background: rgba(0, 255, 157, 0.05);
+    border-color: var(--accent-green);
 }
 .inst-card.active .inst-icon { filter: grayscale(0%) opacity(1); }
 .inst-card.active .name { color: var(--accent-green); }
@@ -94,75 +95,67 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 }
 .mode-badge {
     font-size: 0.6rem; font-weight: bold; padding: 4px 10px;
-    background: #222; border-radius: 12px; color: #666; margin-bottom: 15px;
+    background: var(--bg-card); border-radius: 12px; color: #666; margin-bottom: 15px;
     border: 1px solid #333;
 }
-.mode-badge.manual { color: var(--accent-yellow); border-color: var(--accent-yellow); background: rgba(255, 217, 0, 0.1); }
 
 .guide-message {
-    font-family: var(--font-mono); font-size: 0.9rem; font-weight: bold;
-    color: var(--text-secondary); height: 20px; margin-bottom: 10px; letter-spacing: 1px;
+    font-family: var(--font-mono); font-size: 1rem; font-weight: bold;
+    color: var(--text-secondary); height: 24px; margin-bottom: 10px; letter-spacing: 1px;
+    text-shadow: 0 0 10px rgba(0,0,0,0.5);
 }
 
 .visualizer-ring {
-    position: relative; width: 100%; max-width: 240px; aspect-ratio: 1/1; /* 정사각형 유지 */
+    position: relative; width: 100%; max-width: 280px; aspect-ratio: 1/1;
     display: flex; justify-content: center; align-items: center; margin-bottom: 10px;
 }
 .ring-track {
-    position: absolute; width: 100%; height: 4px; background: #1a1a20;
+    position: absolute; width: 100%; height: 4px; background: #222;
     border-radius: 10px; overflow: hidden;
 }
 .tuning-indicator {
-    position: absolute; width: 12px; height: 36px; background: var(--accent-green);
+    position: absolute; width: 14px; height: 40px; background: var(--accent-green);
     border-radius: 10px; left: 50%; transform: translate(-50%, -50%);
-    box-shadow: 0 0 20px var(--accent-green); transition: left 0.08s ease-out, background 0.2s;
+    box-shadow: 0 0 20px var(--accent-green);
 }
-#note-name { font-size: 5rem; font-weight: 900; color: #222; -webkit-text-stroke: 2px #333; transition: all 0.1s;}
+#note-name { font-size: 5.5rem; font-weight: 900; color: #333; -webkit-text-stroke: 2px #444; transition: all 0.1s;}
 #note-name.active { color: var(--accent-green); -webkit-text-stroke: 0; text-shadow: 0 0 50px var(--accent-green); }
-.octave { font-family: var(--font-mono); font-size: 1.5rem; color: #444; margin-left: 5px; }
+.octave { font-family: var(--font-mono); font-size: 1.5rem; color: #555; margin-left: 5px; }
 
-.frequency-data { display: flex; gap: 10px; font-family: var(--font-mono); color: var(--text-secondary); margin-bottom: 20px;}
+.frequency-data { display: flex; gap: 10px; font-family: var(--font-mono); color: var(--text-secondary); margin-bottom: 10px;}
 .badge { font-size: 0.7rem; font-weight: bold; padding: 4px 8px; background: #222; border-radius: 4px; color: #fff; }
 .hidden { opacity: 0; pointer-events: none; }
 
-.string-control-panel { width: 100%; margin-bottom: 20px; }
+.string-control-panel { width: 100%; margin-bottom: 10px; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-#reset-mode-btn {
-    background: none; border: 1px solid #444; color: #888; padding: 4px 10px;
-    font-size: 0.6rem; border-radius: 6px; cursor: pointer;
-}
 
 .string-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .string-btn {
     background: var(--bg-card); border: 1px solid rgba(255, 255, 255, 0.05);
-    color: var(--text-secondary); padding: 12px; border-radius: 10px; cursor: pointer;
+    color: var(--text-secondary); padding: 14px; border-radius: 12px; 
     font-family: var(--font-heading); font-weight: 800; display: flex; flex-direction: column; align-items: center;
-    transition: all 0.2s;
-    touch-action: manipulation; /* 터치 딜레이 제거 */
+    transition: all 0.3s;
+    /* 클릭 금지 스타일 */
+    cursor: default; pointer-events: none;
 }
 .string-btn .str-num { font-family: var(--font-mono); font-size: 0.6rem; color: #555; margin-bottom: 4px; }
 
 .string-btn.detected {
     border-color: var(--accent-blue); color: #fff;
-    background: linear-gradient(to bottom right, rgba(0, 225, 255, 0.1), var(--bg-card));
-    box-shadow: 0 0 10px rgba(0, 225, 255, 0.2);
+    background: rgba(0, 225, 255, 0.1);
+    box-shadow: 0 0 15px rgba(0, 225, 255, 0.15);
 }
 .string-btn.locked, .string-btn.tuned {
     border-color: var(--accent-green); color: #fff;
-    background: linear-gradient(to bottom right, rgba(0, 255, 157, 0.2), var(--bg-card));
-    box-shadow: 0 0 20px var(--accent-green);
-    transform: scale(1.02);
-}
-.string-btn.manual-target {
-    border-color: var(--accent-yellow); color: #fff;
-    background: linear-gradient(to bottom right, rgba(255, 217, 0, 0.1), var(--bg-card));
-    box-shadow: 0 0 15px rgba(255, 217, 0, 0.2);
+    background: rgba(0, 255, 157, 0.2);
+    box-shadow: 0 0 25px var(--accent-green);
+    transform: scale(1.05);
 }
 
 #start-btn {
-    width: 100%; padding: 16px; border: none; border-radius: 12px;
+    width: 100%; padding: 18px; border: none; border-radius: 16px;
     background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
     cursor: pointer; box-shadow: 0 10px 30px -10px rgba(0, 255, 157, 0.5);
-    font-family: var(--font-heading); font-weight: 900; font-size: 1rem; color: #000;
+    font-family: var(--font-heading); font-weight: 900; font-size: 1.1rem; color: #000;
 }
 #start-btn.stop { background: linear-gradient(90deg, var(--accent-pink), var(--accent-yellow)); }
