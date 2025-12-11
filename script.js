@@ -8,6 +8,7 @@ const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 
 // --- 전역 변수 ---
 let currentInstrument = 'guitar';
+let targetFrequency = null;
 let audioContext = null; 
 let analyser = null; 
 let mediaStream = null;
@@ -22,8 +23,14 @@ const STABILITY_THRESHOLD = 5;
 // [완료된 줄 저장소]
 const tunedStrings = new Set(); 
 
+// [핵심] 노트 튐 방지 변수
+let currentDisplayedNote = "--"; // 현재 화면에 표시 중인 노트
+let currentDisplayedOctave = 0;
+let potentialNote = "";          // 바뀔 후보 노트
+let noteStabilityCounter = 0;    // 노트 변경 확인용 카운터
+const NOTE_CHANGE_THRESHOLD = 12; // 이 횟수만큼 연속으로 감지돼야 노트 변경 (약 0.2~0.3초)
+
 // 상태 변수
-let lastNoteName = "--";
 let isNoteLocked = false;
 let lockedNote = "";
 
@@ -42,6 +49,7 @@ const tuningIndicator = document.getElementById('tuning-indicator');
 const statusDot = document.getElementById('status-dot');
 const guideMsg = document.getElementById('guide-msg');
 const stringContainer = document.getElementById('string-container');
+const resetModeBtn = document.getElementById('reset-mode-btn');
 const instCards = document.querySelectorAll('.inst-card');
 
 function init() {
@@ -51,7 +59,7 @@ function init() {
             instCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             currentInstrument = card.dataset.type;
-            tunedStrings.clear(); // 악기 변경 시 기록 초기화
+            tunedStrings.clear(); 
             resetUI(false);
             renderStringButtons(currentInstrument);
         });
@@ -69,7 +77,6 @@ function renderStringButtons(instType) {
         btn.className = 'string-btn';
         btn.dataset.note = str.note; btn.dataset.octave = str.octave;
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
-        // 클릭 이벤트 제거됨 (표시 전용)
         stringContainer.appendChild(btn);
     });
 }
@@ -149,6 +156,11 @@ function stopTuner() {
 
 function resetUI(keepTuned = false) {
     displayCents = 0; targetCents = 0;
+    
+    // 상태 초기화
+    currentDisplayedNote = "--";
+    noteStabilityCounter = 0;
+
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
@@ -163,8 +175,6 @@ function resetUI(keepTuned = false) {
             b.classList.remove('tuned');
         }
     });
-    
-    if (keepTuned) highlightStringBtn(null, null, false);
 }
 
 function processAudio() {
@@ -179,7 +189,9 @@ function processAudio() {
         stableBuffer.length = 0; 
         if (targetCents !== 0) {
             targetCents = 0;
-            resetUI(true);
+            // 소리가 끊기면 잠시 대기 후 리셋 (즉시 리셋 X)
+            if(isRunning && noteStabilityCounter > 0) noteStabilityCounter--;
+            else resetUI(true);
         }
     }
 
@@ -260,6 +272,39 @@ function updateTuner(frequency) {
     const octave = Math.floor(noteRound / 12) - 1;
     let cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
 
+    // [핵심] 노트 변경 지연 (Hysteresis)
+    // 1. 현재 표시 중인 노트와 같은지 확인
+    const detectedNoteKey = noteName + octave;
+    const currentNoteKey = currentDisplayedNote + currentDisplayedOctave;
+
+    if (currentDisplayedNote === "--" || detectedNoteKey === currentNoteKey) {
+        // 같은 노트면 즉시 갱신 (반응성 유지)
+        noteStabilityCounter = NOTE_CHANGE_THRESHOLD; // 카운터 유지
+        updateUIState(noteName, octave, cents, frequency);
+    } else {
+        // 다른 노트가 감지됨 -> 즉시 바꾸지 않고 카운트
+        if (potentialNote === detectedNoteKey) {
+            noteStabilityCounter++;
+        } else {
+            potentialNote = detectedNoteKey;
+            noteStabilityCounter = 0; // 새로운 후보 등장 시 리셋
+        }
+
+        // 충분히 오랫동안(THRESHOLD) 다른 노트가 감지되었을 때만 변경
+        if (noteStabilityCounter > NOTE_CHANGE_THRESHOLD) {
+            currentDisplayedNote = noteName;
+            currentDisplayedOctave = octave;
+            // 노트가 바뀌었으니 락도 해제
+            isNoteLocked = false;
+            updateUIState(noteName, octave, cents, frequency);
+        } else {
+            // 아직 변경 확정이 아니므로, 화면은 유지하되 미세 조정(Cents)만 무시하거나
+            // 기존 노트 기준으로 계산할 수도 있지만, 여기선 화면 갱신을 멈춰서 흔들림 방지
+        }
+    }
+}
+
+function updateUIState(noteName, octave, cents, frequency) {
     const isPerfect = Math.abs(cents) <= 3;
 
     if (isPerfect) {
@@ -268,7 +313,7 @@ function updateTuner(frequency) {
             isNoteLocked = true;
             lockedNote = noteName;
             
-            tunedStrings.add(noteName + octave); // 완료된 줄 저장
+            tunedStrings.add(noteName + octave); 
             playSuccessSound();
         }
     } else if (Math.abs(cents) > 10) {
@@ -279,9 +324,6 @@ function updateTuner(frequency) {
     }
 
     targetCents = cents;
-    lastNoteName = noteName;
-    lastCents = cents;
-
     renderTextUI(noteName, octave, cents, frequency, isNoteLocked);
 }
 
@@ -325,7 +367,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
-    const factor = isNoteLocked ? 0.3 : 0.15;
+    const factor = isNoteLocked ? 0.3 : 0.2;
     displayCents += (targetCents - displayCents) * factor;
 
     let percentage = 50 + displayCents;
