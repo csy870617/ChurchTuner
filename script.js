@@ -25,7 +25,7 @@ const STABILITY_THRESHOLD = 5;
 // [완료된 줄 저장소]
 const tunedStrings = new Set(); 
 
-// [핵심] 주파수 간섭 방지 변수
+// [간섭 방지 변수]
 let currentTargetFreq = 0; 
 let isolationCounter = 0;  
 
@@ -47,7 +47,6 @@ const freqEl = document.getElementById('frequency');
 const centsEl = document.getElementById('cents');
 const tuningIndicator = document.getElementById('tuning-indicator');
 const guideMsg = document.getElementById('guide-msg');
-const modeBadge = document.getElementById('mode-badge');
 const stringContainer = document.getElementById('string-container');
 const resetModeBtn = document.getElementById('reset-mode-btn');
 const instCards = document.querySelectorAll('.inst-card');
@@ -67,7 +66,7 @@ function init() {
         });
     });
 
-    // 화면 터치로 튜너 시작
+    // 화면 터치로 튜너 시작 (버튼 영역 제외)
     document.body.addEventListener('click', (e) => {
         if (!e.target.closest('.inst-card') && !e.target.closest('.string-btn') && !e.target.closest('#start-btn')) {
             if (!isRunning) startTuner();
@@ -124,6 +123,7 @@ function highlightClosestString(frequency, isLocked) {
         closestBtn.classList.remove('tuned'); 
         closestBtn.classList.add(isLocked ? 'locked' : 'detected');
         
+        // [간섭 방지 핵심] 현재 잡은 줄을 타겟으로 고정
         currentTargetFreq = parseFloat(closestBtn.dataset.freq);
     }
 }
@@ -165,6 +165,7 @@ async function startTuner() {
 
         isRunning = true;
         
+        // 버튼 스타일 변경 (stop 클래스 추가)
         startBtn.classList.add('stop'); 
         btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
@@ -173,14 +174,14 @@ async function startTuner() {
         processAudio();
     } catch (err) { 
         console.error(err); 
-        // [수정됨] 에러 문구 표시 제거 (사용자 요청)
-        // guideMsg.textContent = "마이크 권한 필요"; 
+        // [삭제됨] 사용자 요청으로 에러 문구 표시 제거
     }
 }
 
 function stopTuner() {
     isRunning = false;
     
+    // 버튼 스타일 복구
     startBtn.classList.remove('stop'); 
     btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
@@ -243,6 +244,7 @@ function processAudio() {
     const pitch = yinPitchDetection(buf, audioContext.sampleRate);
     
     if (pitch !== -1) {
+        // [간섭 방지 로직]
         if (currentTargetFreq !== 0) {
             const ratio = pitch / currentTargetFreq;
             if (ratio < 0.85 || ratio > 1.15) {
