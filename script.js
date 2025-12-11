@@ -16,15 +16,18 @@ let source = null;
 let isRunning = false; 
 let rafId = null; 
 
-// [성능 및 노이즈 제어 변수]
-const FFT_SIZE = 2048; 
+// [성능 및 안정화 변수]
+const FFT_SIZE = 4096; // 2048 -> 4096 (해상도를 높여 안정성 확보)
 const buffer = new Float32Array(FFT_SIZE); 
-let lastSuccessTime = 0;
 
-// 화면 갱신용 물리 엔진 변수
+// [핵심] 안정화 버퍼 (튀는 값 방지)
+const pitchHistory = [];
+const HISTORY_SIZE = 5; // 5회 연속 비슷한 값이 나와야 인정
+
+let lastSuccessTime = 0;
 let currentCents = 0; 
 let targetCents = 0;
-let silenceTimer = 0; // 조용할 때 UI 리셋용 타이머
+let silenceTimer = 0; 
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -54,7 +57,6 @@ function init() {
     });
     resetModeBtn.addEventListener('click', resetTarget);
     startBtn.addEventListener('click', toggleTuner);
-    
     requestAnimationFrame(uiLoop);
 }
 
@@ -149,7 +151,6 @@ async function startTuner() {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
-        // [중요] 노이즈 억제 옵션 끄기 (음악적 배음을 살리기 위함)
         const constraints = { 
             audio: { 
                 echoCancellation: false, 
@@ -163,7 +164,7 @@ async function startTuner() {
         
         analyser = audioContext.createAnalyser();
         analyser.fftSize = FFT_SIZE; 
-        analyser.smoothingTimeConstant = 0; // 즉각 반응
+        analyser.smoothingTimeConstant = 0; 
 
         source = audioContext.createMediaStreamSource(mediaStream);
         source.connect(analyser);
@@ -171,7 +172,7 @@ async function startTuner() {
         isRunning = true;
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
-        guideMsg.textContent = "PLAY A STRING..."; // 초기 메시지 변경
+        guideMsg.textContent = "PLAY A STRING...";
         
         analyzeLoop();
     } catch (err) { 
@@ -184,9 +185,7 @@ function stopTuner() {
     isRunning = false;
     startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
-    
-    resetUI(); // UI 초기화
-    
+    resetUI();
     document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('detected', 'locked'));
     guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
 
@@ -201,7 +200,7 @@ function resetUI() {
     octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; 
     centsEl.classList.add('hidden');
-    targetCents = 0; // 바늘 중앙으로
+    targetCents = 0; 
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
     tuningIndicator.style.boxShadow = "none";
 }
@@ -213,75 +212,75 @@ function analyzeLoop() {
     analyser.getFloatTimeDomainData(buffer);
     const freq = performAutocorrelation(buffer, audioContext.sampleRate);
 
-    // [핵심] 1. 소리가 감지되었는가?
     if (freq !== -1 && freq > 40 && freq < 1500) {
+        // [안정화 로직] 주파수 히스토리에 추가
+        pitchHistory.push(freq);
+        if (pitchHistory.length > HISTORY_SIZE) pitchHistory.shift();
         
-        // 타겟 모드 필터
-        if (targetFrequency) {
-            const ratio = freq / targetFrequency;
-            // 타겟 주파수의 ±30% 범위가 아니면 무시 (잡음 취급)
-            if (ratio < 0.7 || ratio > 1.3) {
-                handleSilence();
-                rafId = requestAnimationFrame(analyzeLoop);
-                return;
+        // 히스토리가 가득 차고, 값들이 안정적일 때만 업데이트
+        if (pitchHistory.length === HISTORY_SIZE && isStable(pitchHistory)) {
+            // 평균값 사용 (튀는 값 방지)
+            const avgFreq = pitchHistory.reduce((a, b) => a + b) / HISTORY_SIZE;
+            
+            silenceTimer = 0;
+            
+            if (targetFrequency) {
+                const ratio = avgFreq / targetFrequency;
+                if (ratio > 0.7 && ratio < 1.3) updateTunerState(avgFreq);
+                else handleSilence(); // 범위 밖이면 무시
+            } else {
+                updateTunerState(avgFreq);
             }
         }
-
-        silenceTimer = 0; // 소리가 있으므로 타이머 리셋
-        updateTunerState(freq);
-
     } else {
-        // [핵심] 2. 소리가 없거나(잡음) 너무 작으면 침묵 처리
+        pitchHistory.length = 0; // 끊기면 히스토리 초기화
         handleSilence();
     }
 
     rafId = requestAnimationFrame(analyzeLoop);
 }
 
+// [핵심] 안정성 검사 함수
+function isStable(arr) {
+    const min = Math.min(...arr);
+    const max = Math.max(...arr);
+    // 5개의 샘플 중 최대/최소 차이가 2Hz 이내여야 함 (안정된 소리)
+    return (max - min) < 2; 
+}
+
 function handleSilence() {
     silenceTimer++;
-    // 약 20프레임(0.3초) 이상 조용하면 UI 리셋 (바늘 튀는 것 방지)
-    if (silenceTimer > 20) {
-        targetCents = 0; // 바늘 중앙 복귀
-        // 텍스트는 바로 지우지 않고 유지하다가 아주 오래되면 지움 (선택사항)
+    // 잡음이나 침묵이 10프레임(약 0.16초) 지속되면 UI 리셋
+    if (silenceTimer > 10) {
+        targetCents = 0; 
+        // 텍스트는 유지하다가 더 길어지면 초기화
+        if (silenceTimer > 100) resetUI(); 
     }
 }
 
-// 최적화된 Autocorrelation + Noise Gate
 function performAutocorrelation(buf, sampleRate) {
     let size = buf.length;
     let rms = 0;
-
-    // 1. RMS(볼륨) 계산
-    for (let i = 0; i < size; i++) {
-        const val = buf[i];
-        rms += val * val;
-    }
+    for (let i = 0; i < size; i++) { const val = buf[i]; rms += val * val; }
     rms = Math.sqrt(rms / size);
     
-    // [초강력 노이즈 게이트]
-    // 볼륨이 0.015 미만이면 아예 잡음으로 간주하고 -1 반환 (이 수치로 민감도 조절)
-    // 너무 낮으면 잡음 잡고, 너무 높으면 1번줄 못 잡음. 0.015가 적절.
+    // [노이즈 게이트] 이 값을 올리면 마이크가 둔감해지고(잡음무시), 내리면 예민해짐
+    // 0.015는 보통 방에서 적절. 조용한 곳이면 0.01 추천.
     if (rms < 0.015) return -1;
 
-    // 2. 검색 범위 설정
-    let r1 = Math.floor(sampleRate / 1500); // Max Frequency
-    let r2 = Math.floor(sampleRate / 40);   // Min Frequency
+    let r1 = Math.floor(sampleRate / 1500); 
+    let r2 = Math.floor(sampleRate / 40);
     if (r2 > size) r2 = size;
 
-    // 3. 상관관계 계산 (Difference Method)
     let bestOffset = -1;
     let bestCorrelation = 0;
 
     for (let offset = r1; offset < r2; offset++) {
         let correlation = 0;
-        
-        // 샘플링 간격(skip)을 1로 하여 정밀도 최대화
+        // 샘플링 건너뛰기 없이 정밀 계산
         for (let i = 0; i < size - offset; i++) {
             correlation += Math.abs(buf[i] - buf[i + offset]);
         }
-        
-        // 정규화 (1에 가까울수록 일치)
         correlation = 1 - (correlation / size); 
 
         if (correlation > bestCorrelation) {
@@ -290,9 +289,8 @@ function performAutocorrelation(buf, sampleRate) {
         }
     }
 
-    // [중요] 상관관계(음의 명확도)가 92% 미만이면 잡음 취급
-    // 이 수치를 높일수록 튜너가 깐깐해짐 (잡음 무시)
-    if (bestCorrelation < 0.92) return -1;
+    // [엄격한 기준] 상관관계 96% 이상일 때만 인정 (잡음 차단 핵심)
+    if (bestCorrelation < 0.96) return -1;
 
     return sampleRate / bestOffset;
 }
@@ -349,11 +347,10 @@ function renderTextUI(note, octave, cents, frequency) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// --- UI 루프 (물리 엔진) ---
+// --- UI 루프 (물리 엔진: 무게감 추가) ---
 function uiLoop() {
-    // 바늘이 목표지점으로 매우 빠르게 이동 (0.4 -> 0.6)
-    // 값이 높을수록 반응이 빠름 (최대 1.0)
-    currentCents += (targetCents - currentCents) * 0.6;
+    // Lerp 계수 0.15: 바늘이 묵직하게 따라감 (떨림 방지)
+    currentCents += (targetCents - currentCents) * 0.15;
 
     let percentage = 50 + currentCents;
     if (percentage < 0) percentage = 0; 
