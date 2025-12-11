@@ -37,11 +37,11 @@
                         <span class="detail">4-String</span>
                     </div>
                 </div>
-                <div class="inst-card" data-type="ukulele">
-                    <div class="inst-icon">🌴</div>
+                <div class="inst-card special-slot" id="dynamic-inst-card" data-type="more">
+                    <div class="inst-icon" id="dyn-icon">➕</div>
                     <div class="inst-info">
-                        <span class="name">UKULELE</span>
-                        <span class="detail">GCEA</span>
+                        <span class="name" id="dyn-name">MORE</span>
+                        <span class="detail" id="dyn-detail">Select Inst.</span>
                     </div>
                 </div>
             </div>
@@ -81,6 +81,17 @@
                 <span class="btn-text">ACTIVATE MIC</span>
             </button>
         </footer>
+    </div>
+
+    <div id="inst-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>SELECT INSTRUMENT</h2>
+                <button id="close-modal">✕</button>
+            </div>
+            <div class="modal-list" id="modal-list">
+                </div>
+        </div>
     </div>
 
     <script src="script.js"></script>
