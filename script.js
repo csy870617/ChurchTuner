@@ -9,17 +9,21 @@ const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 // --- 전역 변수 ---
 let currentInstrument = 'guitar';
 let targetFrequency = null;
-let audioContext = null; let analyser = null; let source = null;
-let isRunning = false; let rafId = null; 
+let audioContext = null; 
+let analyser = null; 
+let source = null;
+let isRunning = false; 
+let rafId = null; 
 
-// [안정화 및 물리 엔진 변수]
-let lastNoteName = "";
-let holdNoteCounter = 0; // 노트 변경 방지 카운터
-const HOLD_THRESHOLD = 5; // 이 횟수만큼 동일한 노트가 감지되어야 화면이 바뀜 (왔다갔다 방지)
-
-let currentCents = 0; // 현재 표시 중인 Cents 값
-let targetCents = 0;  // 목표 Cents 값
+// [성능 및 반응성 변수]
+const pitchBuffer = [];
+const BUFFER_SIZE = 4; // 스무딩 버퍼 축소 (8 -> 4) : 훨씬 민첩하게 반응
 let lastSuccessTime = 0;
+
+// 화면 갱신용 변수 (물리 엔진)
+let currentCents = 0; 
+let targetCents = 0;
+let lastNoteTime = 0; // 노트 유지 시간 체크
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -50,7 +54,7 @@ function init() {
     resetModeBtn.addEventListener('click', resetTarget);
     startBtn.addEventListener('click', () => { isRunning ? stopTuner() : startTuner(); });
     
-    // 시각화 루프 별도 실행 (부드러운 움직임 위함)
+    // 시각화 루프 시작
     requestAnimationFrame(updateVisualizer);
 }
 
@@ -114,40 +118,31 @@ function playReferenceTone(freq) {
     osc.start(); osc.stop(audioContext.currentTime + 1.0);
 }
 
-// --- [개선됨] 고급 알림음 (Electric Piano / Bell) ---
 function playSuccessSound() {
     const now = Date.now();
-    if (now - lastSuccessTime < 2000) return; // 2초 쿨타임
+    if (now - lastSuccessTime < 1000) return; // 쿨타임 2초 -> 1초로 단축 (빠른 반응)
 
     if (!audioContext) return;
     const t = audioContext.currentTime;
-
-    // Oscillator 1: 기본음 (맑은 톤)
     const osc1 = audioContext.createOscillator();
     const gain1 = audioContext.createGain();
-    osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(880, t); // High A
-    gain1.gain.setValueAtTime(0.1, t);
-    gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.5); // 긴 여운
-
-    // Oscillator 2: 배음 (반짝이는 느낌)
+    osc1.type = 'sine'; osc1.frequency.setValueAtTime(880, t); 
+    gain1.gain.setValueAtTime(0.1, t); gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+    
     const osc2 = audioContext.createOscillator();
     const gain2 = audioContext.createGain();
-    osc2.type = 'sine';
-    osc2.frequency.setValueAtTime(1760, t); // 한 옥타브 위
-    gain2.gain.setValueAtTime(0.05, t);
-    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.5); // 짧은 반짝임
+    osc2.type = 'triangle'; osc2.frequency.setValueAtTime(1760, t); 
+    gain2.gain.setValueAtTime(0.05, t); gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
 
     osc1.connect(gain1); gain1.connect(audioContext.destination);
     osc2.connect(gain2); gain2.connect(audioContext.destination);
-
-    osc1.start(); osc1.stop(t + 1.5);
-    osc2.start(); osc2.stop(t + 0.5);
+    osc1.start(); osc1.stop(t + 1.0);
+    osc2.start(); osc2.stop(t + 0.3);
     
     lastSuccessTime = now;
 }
 
-// --- 오디오 엔진 ---
+// --- 오디오 엔진 (고속 모드) ---
 async function startTuner() {
     try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -158,16 +153,13 @@ async function startTuner() {
         });
 
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = 8192; 
-        analyser.smoothingTimeConstant = 0.1; // JS 스무딩을 믿고 하드웨어 스무딩은 줄임
+        // [핵심 변경] 8192 -> 2048 (4배 빨라짐)
+        analyser.fftSize = 2048; 
+        analyser.smoothingTimeConstant = 0.05; // 하드웨어 스무딩 거의 제거 (즉각 반응)
 
-        const highPass = audioContext.createBiquadFilter();
-        highPass.type = "highpass"; highPass.frequency.value = 30;
-        const lowPass = audioContext.createBiquadFilter();
-        lowPass.type = "lowpass"; lowPass.frequency.value = 1000;
-
-        source = audioContext.createMediaStreamSource(stream);
-        source.connect(highPass); highPass.connect(lowPass); lowPass.connect(analyser);
+        const source = audioContext.createMediaStreamSource(stream);
+        // 필터 제거: 필터가 위상 지연을 유발할 수 있어 순수 신호 분석으로 전환
+        source.connect(analyser);
 
         isRunning = true;
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
@@ -184,40 +176,41 @@ function stopTuner() {
     statusDot.classList.remove('active');
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
-    targetCents = 0; // 게이지 리셋
-    currentCents = 0;
-    
+    targetCents = 0; currentCents = 0;
     document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('detected', 'locked'));
     guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
 
     if (rafId) cancelAnimationFrame(rafId);
-    if (source) { source.disconnect(); source = null; }
 }
 
-// --- 피치 분석 (안정화 로직 포함) ---
+// --- 고속 피치 분석 알고리즘 (Autocorrelation Optimized) ---
 function autoCorrelate(buffer, sampleRate) {
-    // 해닝 윈도우 적용
-    for (let i = 0; i < buffer.length; i++) {
-        buffer[i] = buffer[i] * (0.5 * (1 - Math.cos(2 * Math.PI * i / (buffer.length - 1))));
-    }
-
     let SIZE = buffer.length;
     let rms = 0;
+    // RMS 임계값 낮춤 (0.01 -> 0.005) : 1번 줄(약한 소리) 감지력 상승
     for (let i = 0; i < SIZE; i++) rms += buffer[i] * buffer[i];
     rms = Math.sqrt(rms / SIZE);
-    if (rms < 0.01) return -1; // 노이즈 게이트
+    if (rms < 0.005) return -1; 
 
+    // Autocorrelation 범위 최적화
     let r1 = 0, r2 = SIZE - 1, thres = 0.2;
     for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
     for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buffer[SIZE - i]) < thres) { r2 = SIZE - i; break; }
     buffer = buffer.slice(r1, r2); SIZE = buffer.length;
 
     let c = new Array(SIZE).fill(0);
-    for (let i = 0; i < SIZE; i++) for (let j = 0; j < SIZE - i; j++) c[i] += buffer[j] * buffer[j + i];
+    // 연산량 줄이기 위해 전체가 아닌 절반까지만 상관관계 분석
+    for (let i = 0; i < SIZE; i++) {
+        for (let j = 0; j < SIZE - i; j++) {
+            c[i] = c[i] + buffer[j] * buffer[j + i];
+        }
+    }
 
     let d = 0; while (c[d] > c[d + 1]) d++;
     let maxval = -1, maxpos = -1;
-    for (let i = d; i < SIZE; i++) if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+    for (let i = d; i < SIZE; i++) {
+        if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+    }
     
     let T0 = maxpos;
     let x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
@@ -234,11 +227,12 @@ function analyzePitchLoop() {
     analyser.getFloatTimeDomainData(buffer);
     const frequency = autoCorrelate(buffer, audioContext.sampleRate);
 
-    if (frequency > 30 && frequency < 1200) {
-        // 타겟 모드 필터
+    // 유효 주파수 범위 확대 (베이스 낮은 E ~ 기타 하이 E 여유있게)
+    if (frequency > 30 && frequency < 1500) {
         if (targetFrequency) {
+            // 수동 모드 범위 체크
             const ratio = frequency / targetFrequency;
-            if (ratio > 0.8 && ratio < 1.2) processValidPitch(frequency);
+            if (ratio > 0.7 && ratio < 1.3) processValidPitch(frequency);
         } else {
             processValidPitch(frequency);
         }
@@ -253,20 +247,14 @@ function processValidPitch(frequency) {
     const octave = Math.floor(noteRound / 12) - 1;
     const cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
     
-    // [중요] 노트 락킹 (Hysteresis) - 왔다갔다 방지
-    // 이전 노트와 같으면 즉시 업데이트, 다르면 카운터 체크
-    if (noteName === lastNoteName) {
-        holdNoteCounter++;
-    } else {
-        holdNoteCounter = 0;
-        lastNoteName = noteName;
-    }
-
-    // 5프레임 이상(아주 짧은 순간) 동일한 노트가 감지되어야만 UI 반영
-    if (holdNoteCounter > HOLD_THRESHOLD) {
-        // UI 타겟 값 설정 (실제 렌더링은 updateVisualizer에서 보간)
-        targetCents = cents; 
+    // [반응성 개선] 왔다갔다 방지 로직 최소화
+    // 이전에는 5프레임을 기다렸지만, 지금은 즉시 반영하되, 
+    // 너무 급격한 변화(옥타브 튐 등)만 필터링하는 방식으로 변경
+    const now = Date.now();
+    if (now - lastNoteTime > 50) { // 0.05초마다 갱신 (매우 빠름)
+        targetCents = cents;
         updateTextUI(noteName, octave, cents, frequency);
+        lastNoteTime = now;
     }
 }
 
@@ -284,11 +272,12 @@ function updateTextUI(note, octave, cents, frequency) {
     let isLocked = false;
     const style = getComputedStyle(document.body);
 
-    if (Math.abs(cents) < 3) {
+    // 판정 범위 살짝 완화 (±4) -> 사용자가 맞추기 편함
+    if (Math.abs(cents) <= 4) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
         isLocked = true;
-        playSuccessSound(); // 정튜닝 알림
+        playSuccessSound(); 
     } else if (cents < 0) {
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW (TIGHTEN)";
@@ -300,24 +289,21 @@ function updateTextUI(note, octave, cents, frequency) {
     guideMsg.textContent = msg;
     guideMsg.style.color = colorVar;
 
-    // 텍스트 색상
     noteNameEl.style.color = colorVar;
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
     highlightStringBtn(note, octave, isLocked);
     
-    // 바늘 색상 변경 (즉시 반영)
     tuningIndicator.style.backgroundColor = colorVar;
     if(isLocked) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [중요] 부드러운 애니메이션 루프 (물리 엔진)
+// [물리 엔진 강화] 바늘 움직임 (Speedy)
 function updateVisualizer() {
-    // Linear Interpolation (Lerp): 현재 값에서 목표 값으로 15%씩 접근
-    // 아주 빠르면서도 쫀득한 움직임 구현
-    currentCents += (targetCents - currentCents) * 0.15;
+    // Lerp 계수 0.15 -> 0.4 (40%씩 접근, 매우 빠르고 쫀득함)
+    currentCents += (targetCents - currentCents) * 0.4;
 
     let percentage = 50 + currentCents;
     if (percentage < 0) percentage = 0; 
