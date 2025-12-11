@@ -59,17 +59,17 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (중간값 필터) ---
+// --- 2. 안정화 유틸리티 (이동 평균) ---
 class MedianFilter {
     constructor(size) {
         this.size = size;
         this.buffer = [];
     }
     add(value) {
-        // 급격한 변화(옥타브 튐 등) 방지
+        // 너무 큰 값(오류)만 거르고 다 받아들임
         if (this.buffer.length > 0) {
             const last = this.buffer[this.buffer.length - 1];
-            if (Math.abs(last - value) > 150) return; // 150센트 이상 차이나면 무시
+            if (Math.abs(last - value) > 300) return; 
         }
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
@@ -98,19 +98,19 @@ const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-// 안정화를 위한 필터 (반응속도와 안정성의 균형)
-const medianFilter = new MedianFilter(5);
+const medianFilter = new MedianFilter(5); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
-let lastDetectedStringIndex = -1; // 줄 고정(Hysteresis)용 인덱스
+let lastDetectedStringIndex = -1; 
+let noteStabilityCounter = 0;
+const NOTE_CHANGE_THRESHOLD = 5;
 
-// 락킹(완료) 설정
 let isNoteLocked = false;
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 8;  // 유지 프레임
-const LOCK_TOLERANCE_CENTS = 8;  // ±8센트 이내면 완료
-const UNLOCK_THRESHOLD_CENTS = 25; // 25센트 벗어나야 풀림
+const LOCK_REQUIRED_FRAMES = 8;  
+const LOCK_TOLERANCE_CENTS = 10; 
+const UNLOCK_THRESHOLD_CENTS = 30; 
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -245,11 +245,12 @@ function highlightStringBtn(noteName, octave, isLocked) {
     
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
+        
         btn.classList.remove('detected', 'locked', 'tuned');
 
         if (tunedStrings.has(btnKey)) {
             btn.classList.add('tuned');
-            return;
+            return; 
         }
 
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
@@ -273,7 +274,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 (강력한 부스트) ---
+// --- 5. 오디오 처리 (강력한 증폭 및 필터 제거) ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
@@ -281,13 +282,18 @@ async function startTuner() {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
         
-        // 에코 캔슬레이션 OFF -> 원음 확보
-        const constraints = { audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } };
+        const constraints = { 
+            audio: { 
+                echoCancellation: false, 
+                autoGainControl: false, 
+                noiseSuppression: false 
+            } 
+        };
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // [중요] 마이크 증폭 (5배) -> 작은 소리 감지
+        // [중요] 마이크 5배 증폭: 작은 소리도 무조건 잡음
         gainNode = audioContext.createGain();
         gainNode.gain.value = 5.0;
 
@@ -301,7 +307,6 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
 
-        // 연결: Source -> Gain -> Compressor -> Filter -> Analyser
         inputSource.connect(gainNode);
         gainNode.connect(compressor);
         compressor.connect(biquadFilter);
@@ -359,12 +364,13 @@ function processAudio() {
     if (!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
-    // RMS 체크 (소음 게이트: 아주 낮게 설정하여 반응성 확보)
+    // RMS 체크 (소음 게이트: 아주 낮게)
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    if (rms < 0.002) { // 0.002 미만이면 사실상 침묵
+    // 0.005 이하면 침묵
+    if (rms < 0.005) { 
         if (!isNoteLocked) {
              if (Math.abs(targetCents) > 1) {
                  targetCents *= 0.9;
@@ -374,6 +380,7 @@ function processAudio() {
         return;
     }
 
+    // [복구] 표준 YIN 알고리즘 호출
     const pitch = yinPitchDetection(buf, audioContext.sampleRate);
     if (pitch !== -1) {
         updateTuner(pitch);
@@ -381,16 +388,15 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
-// [검증된 YIN 알고리즘] - 복잡도 줄이고 표준 구현 사용
+// [표준 YIN 알고리즘]
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.10; // 임계값 낮춤 -> 감지력 상승
+    const threshold = 0.15; // 표준 임계값
     const bufferSize = buffer.length;
     let tauEstimate = -1;
     let pitchInHz = -1;
     
-    // 1. Difference
     const yinBuffer = new Float32Array(bufferSize / 2);
-    yinBuffer[0] = 1;
+    yinBuffer[0] = 1; 
     let runningSum = 0;
     
     for (let tau = 1; tau < yinBuffer.length; tau++) {
@@ -405,7 +411,6 @@ function yinPitchDetection(buffer, sampleRate) {
         else yinBuffer[tau] = 1;
     }
 
-    // 2. Threshold
     for (let tau = 2; tau < yinBuffer.length; tau++) {
         if (yinBuffer[tau] < threshold) {
             while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
@@ -413,7 +418,6 @@ function yinPitchDetection(buffer, sampleRate) {
         }
     }
 
-    // 3. Interpolation
     if (tauEstimate !== -1) {
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -432,7 +436,6 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [스마트 줄 감지 + 관성]
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -451,19 +454,15 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
-        // 현재 잡고 있는 줄에 강력한 가중치 (쉽게 안 바뀜)
         if (lastDetectedStringIndex === index) {
-            weight = 0.5; 
+            weight = 0.6; 
         }
 
         let diff = Math.abs(frequency - str.freq);
-        
-        // 배음 보정 (옥타브)
-        const diff2 = Math.abs(frequency - (str.freq * 2));
-        if (diff2 < 20) diff = diff2 / 5;
-        
-        const diff3 = Math.abs(frequency - (str.freq * 3));
-        if (diff3 < 20) diff = diff3 / 5;
+        const diffHarmonic = Math.abs(frequency - (str.freq * 2));
+        if (diffHarmonic < 15) { 
+             diff = diffHarmonic / 5; 
+        }
 
         diff = diff * weight;
 
