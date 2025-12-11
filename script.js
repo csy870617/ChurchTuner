@@ -59,19 +59,13 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (중간값 필터) ---
+// --- 2. 안정화 유틸리티 (중간값 필터 - 튀는 값 제거용) ---
 class MedianFilter {
     constructor(size) {
         this.size = size;
         this.buffer = [];
     }
     add(value) {
-        // [중요] 비정상적인 값(튀는 값) 필터링
-        // 이전 값과 200센트 이상 차이나면 무시 (옥타브 점프 방지)
-        if (this.buffer.length > 0) {
-           const last = this.buffer[this.buffer.length-1];
-           if(Math.abs(last - value) > 200) return; 
-        }
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
     }
@@ -91,14 +85,14 @@ let analyser = null;
 let mediaStream = null;
 let isRunning = false; 
 let inputSource = null;
-let biquadFilter = null; 
+let lowPassFilter = null; // 고음 노이즈 차단용
 let compressor = null;   
 
-const BUF_SIZE = 4096;
+const BUF_SIZE = 4096; // 버퍼 사이즈 충분히 확보
 const buf = new Float32Array(BUF_SIZE);
-const tunedStrings = new Set(); // 완료된 줄 저장소
+const tunedStrings = new Set(); 
 
-// 중간값 필터 (5프레임)
+// [핵심] 중간값 필터 (5프레임) - 순간적인 오류 제거
 const medianFilter = new MedianFilter(5);
 
 let currentDisplayedNote = "--"; 
@@ -112,7 +106,7 @@ let isNoteLocked = false;
 let lockDuration = 0; 
 const LOCK_REQUIRED_FRAMES = 8;  
 const LOCK_TOLERANCE_CENTS = 10; 
-const UNLOCK_THRESHOLD_CENTS = 50; // [수정] 50센트 이상 벗어나야 풀림 (불안정 방지)
+const UNLOCK_THRESHOLD_CENTS = 30; 
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -191,8 +185,7 @@ function activateInstrument(instKey, cardElement) {
         localStorage.setItem('churchTuner_dynamic', instKey);
     }
     
-    // 악기 변경 시에만 초기화
-    tunedStrings.clear(); 
+    tunedStrings.clear(); // 악기 변경 시에만 초기화
     
     if(isRunning) applyInstrumentFilter();
     resetUI(false);
@@ -244,7 +237,7 @@ function renderStringButtons(instType) {
     });
 }
 
-// [핵심] UI 하이라이트: 한번 켜진 불은 절대 꺼지지 않음
+// [핵심] UI 하이라이트 로직 (완료된 줄 절대 안 꺼짐)
 function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
@@ -252,18 +245,24 @@ function highlightStringBtn(noteName, octave, isLocked) {
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
         
-        // 1. 이미 완료된 줄이면 무조건 tuned (다른 상태 무시)
-        if (tunedStrings.has(btnKey)) {
-            btn.classList.add('tuned');
-            btn.classList.remove('detected', 'locked');
-            return; // 여기서 종료해서 밑의 로직이 건드리지 못하게 함
-        }
+        // 1. 완료된 줄인지 확인
+        const isAlreadyTuned = tunedStrings.has(btnKey);
+        
+        // 2. 현재 감지된 줄인지 확인
+        const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
 
-        // 2. 완료되지 않은 줄 초기화
-        btn.classList.remove('tuned', 'detected', 'locked');
+        // 초기화
+        btn.classList.remove('detected', 'locked', 'tuned');
 
-        // 3. 현재 감지된 줄 표시
-        if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
+        // 상태 적용 순서: Tuned(완료) > Detected(감지) > 기본
+        if (isAlreadyTuned) {
+            btn.classList.add('tuned'); // 이미 완료됐으면 무조건 tuned
+            // 만약 완료된 줄을 또 치고 있고, 지금 락킹(완료) 상태라면 애니메이션 효과를 위해 locked 추가 가능하지만
+            // 여기서는 심플하게 tuned만 유지
+        } 
+        
+        // 완료되지 않은 줄인데 현재 감지됨
+        if (!isAlreadyTuned && isCurrentDetected) {
             if (isLocked) {
                 // 지금 막 완료됨
                 btn.classList.add('tuned');
@@ -286,7 +285,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 ---
+// --- 5. 오디오 처리 (노이즈 필터링 강화) ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
@@ -298,26 +297,29 @@ async function startTuner() {
             audio: { 
                 echoCancellation: false, 
                 autoGainControl: false, 
-                noiseSuppression: false 
+                noiseSuppression: false // 브라우저 필터 끄고 직접 처리
             } 
         };
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
+        // 1. 컴프레서 (레벨 평탄화)
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50;
         compressor.ratio.value = 12;
 
-        biquadFilter = audioContext.createBiquadFilter();
-        biquadFilter.type = "lowpass"; 
+        // 2. Low-Pass Filter (고음 노이즈 제거 - 핵심)
+        // 기타/베이스는 1000Hz 이상 불필요. 잡음의 원천 차단.
+        lowPassFilter = audioContext.createBiquadFilter();
+        lowPassFilter.type = "lowpass";
         
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
 
         inputSource.connect(compressor);
-        compressor.connect(biquadFilter);
-        biquadFilter.connect(analyser);
+        compressor.connect(lowPassFilter); // 컴프레서 -> LPF
+        lowPassFilter.connect(analyser);   // LPF -> 분석기
 
         applyInstrumentFilter();
 
@@ -333,10 +335,12 @@ async function startTuner() {
 }
 
 function applyInstrumentFilter() {
-    if(!biquadFilter) return;
+    if(!lowPassFilter) return;
     const instData = instruments[currentInstrument];
-    const maxFreq = instData.range ? instData.range[1] * 2.5 : 2000; 
-    biquadFilter.frequency.value = maxFreq;
+    // 악기별로 필요한 최대 주파수만 통과시킴
+    // 예: 기타 1000Hz, 베이스 400Hz
+    const maxFreq = instData.range ? instData.range[1] : 1000; 
+    lowPassFilter.frequency.value = maxFreq;
 }
 
 function stopTuner() {
@@ -371,10 +375,12 @@ function processAudio() {
     if (!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
+    // RMS 체크 (소음 게이트)
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
+    // 소리가 너무 작으면 분석 중지 (바늘 천천히 떨어짐)
     if (rms < 0.015) { 
         if (!isNoteLocked) {
              if (Math.abs(targetCents) > 1) {
@@ -390,6 +396,7 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
+// [YIN 알고리즘]
 function yinPitchDetection(buffer, sampleRate) {
     const threshold = 0.15;
     const bufferSize = buffer.length;
@@ -453,19 +460,18 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
-        // 현재 잡고 있는 줄 우선권
+        // 현재 잡고 있는 줄에 40% 우선권 부여 (쉽게 안바뀜)
         if (lastDetectedStringIndex === index) {
             weight = 0.6; 
         }
 
         let diff = Math.abs(frequency - str.freq);
         
-        // 2배음, 3배음 보정 (옥타브 튀는 현상 방지)
-        const diff2 = Math.abs(frequency - (str.freq * 2));
-        if (diff2 < 20) diff = diff2 / 10; // 2배음이면 강력하게 끌어당김
-        
-        const diff3 = Math.abs(frequency - (str.freq * 3));
-        if (diff3 < 20) diff = diff3 / 10;
+        // 2배음 보정 (옥타브 오류 방지)
+        const diffHarmonic = Math.abs(frequency - (str.freq * 2));
+        if (diffHarmonic < 15) { 
+             diff = diffHarmonic / 5; 
+        }
 
         diff = diff * weight;
 
@@ -493,29 +499,22 @@ function updateTuner(frequency) {
     
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
-    // 옥타브 오류 정규화 (-600 ~ +600 범위로)
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
-    
-    // [중요] +500 튀는 현상 방지: 급격한 옥타브 점프 필터링
-    if (Math.abs(rawCents) > 500) {
-        // 너무 큰 오차는 옥타브 오류일 확률 높음 -> 0에 가깝게 강제 보정 시도
-        // 하지만 여기서는 MedianFilter가 처리하도록 그대로 둠
-    }
 
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
     
+    // 노트 변경 감지 필요 없음 (즉시 반응)
     processCentsAndLocking(match.note, match.octave, rawCents, frequency);
 }
 
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
-    // [중요] 중간값 필터로 튀는 값(Glitch) 제거
+    // [중요] 중간값 필터 사용 (튀는 값 제거)
     medianFilter.add(rawCents);
     const smoothCents = medianFilter.getMedian();
 
     if (isNoteLocked) {
-        // 락킹 유지: ±50센트 이상 벗어나야 풀림 (아주 강력한 유지)
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
@@ -526,13 +525,12 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
         }
     } else {
         targetCents = smoothCents;
-        // 락킹 진입: ±10센트
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 
-                // 완료 기록 및 UI 업데이트
+                // 완료 기록
                 tunedStrings.add(noteName + octave);
                 highlightStringBtn(noteName, octave, true);
                 
@@ -592,6 +590,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
+    // 반응 속도 살짝 높임
     const factor = isNoteLocked ? 0.3 : 0.25; 
     displayCents += (targetCents - displayCents) * factor;
 
