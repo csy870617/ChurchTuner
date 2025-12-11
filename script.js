@@ -1,11 +1,19 @@
-// --- 악기 데이터 (이전과 동일하게 유지 + 필터 범위 추가) ---
+// --- 1. 악기 데이터 정의 (필터 범위 및 이조 악기 설정 포함) ---
 const instruments = {
+    // [기본 슬롯]
     guitar: { name: "GUITAR", icon: "🎸", detail: "6-String", range: [70, 400], strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
     bass: { name: "BASS", icon: "🎸", detail: "4-String", range: [30, 200], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
+    
+    // [유니버설]
     chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", range: [20, 2000], isChromatic: true, strings: [], columns: 1 },
+
+    // [현악기]
     ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 500], strings: [ { note: "G", octave: 4, freq: 392.00, num: 4 }, { note: "C", octave: 4, freq: 261.63, num: 3 }, { note: "E", octave: 4, freq: 329.63, num: 2 }, { note: "A", octave: 4, freq: 440.00, num: 1 } ], columns: 2 },
     violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [190, 700], strings: [ { note: "G", octave: 3, freq: 196.00, num: 4 }, { note: "D", octave: 4, freq: 293.66, num: 3 }, { note: "A", octave: 4, freq: 440.00, num: 2 }, { note: "E", octave: 5, freq: 659.25, num: 1 } ], columns: 2 },
     cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 250], strings: [ { note: "C", octave: 2, freq: 65.41, num: 4 }, { note: "G", octave: 2, freq: 98.00, num: 3 }, { note: "D", octave: 3, freq: 146.83, num: 2 }, { note: "A", octave: 3, freq: 220.00, num: 1 } ], columns: 2 },
+    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 200], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
+
+    // [관악기] num: 악보상 음, note: 실제 들리는 음
     flute: { name: "FLUTE", icon: "🎼", detail: "Standard", range: [200, 1000], strings: [ { note: "A", octave: 4, freq: 440.00, num: "A" }, { note: "A#", octave: 4, freq: 466.16, num: "Bb" } ], columns: 2 },
     clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb-Key", range: [100, 800], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 },
     sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb-Key", range: [100, 800], strings: [ { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, { note: "A#", octave: 3, freq: 466.16, num: "G" } ], columns: 2 },
@@ -14,13 +22,13 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- [기술 1] 칼만 필터 (Kalman Filter) 클래스: 바늘 떨림 방지 ---
+// --- 2. 유틸리티 클래스: 칼만 필터 (바늘 떨림 보정) ---
 class SimpleKalmanFilter {
     constructor(r = 1, q = 1, a = 1, b = 0, c = 1) {
-        this.R = r; // 측정 잡음 공분산 (높을수록 부드러움)
-        this.Q = q; // 프로세스 잡음 공분산 (반응 속도)
+        this.R = r; // 측정 잡음 (높을수록 부드러움)
+        this.Q = q; // 반응 속도
         this.A = a; this.B = b; this.C = c;
-        this.cov = NaN; this.x = NaN; // 추정값
+        this.cov = NaN; this.x = NaN; 
     }
     filter(z) {
         if (isNaN(this.x)) {
@@ -37,7 +45,7 @@ class SimpleKalmanFilter {
     reset() { this.x = NaN; this.cov = NaN; }
 }
 
-// --- 전역 변수 ---
+// --- 3. 전역 변수 설정 ---
 let currentInstrument = 'guitar';
 let currentDynamicInst = null; 
 let audioContext = null; 
@@ -45,30 +53,32 @@ let analyser = null;
 let mediaStream = null;
 let isRunning = false; 
 
-// 오디오 필터 노드
+// 오디오 필터 체인
 let inputSource = null;
-let biquadFilter = null; // 대역 통과 필터 (노이즈 제거)
-let compressor = null;   // 소리 평탄화
+let biquadFilter = null; // 노이즈 제거용 LPF
+let compressor = null;   // 볼륨 평탄화
 
-// 알고리즘 변수
+// 튜닝 알고리즘 변수
 const BUF_SIZE = 2048;
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
-const kalman = new SimpleKalmanFilter(50, 10); // 부드러운 움직임을 위한 필터 설정
+const kalman = new SimpleKalmanFilter(50, 10); // R=50, Q=10 (부드러운 세팅)
 
+// 상태 감지 변수
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let potentialNote = "";          
 let noteStabilityCounter = 0;    
-const NOTE_CHANGE_THRESHOLD = 8; // 반응 속도 약간 상향
+const NOTE_CHANGE_THRESHOLD = 8; 
 
-// [기술 2] Sticky Locking (쫀득한 고정) 변수
+// [핵심] Sticky Locking (쫀득한 고정) 변수
 let isNoteLocked = false;
 let lockedNote = "";
-let lockDuration = 0; // 고정 지속 시간 체크
-const LOCK_REQUIRED_FRAMES = 10; // 완벽한 음이 이만큼 지속되어야 잠김
-const UNLOCK_THRESHOLD_CENTS = 8; // 잠긴 후 이만큼 벗어나야 풀림 (Hysteresis)
+let lockDuration = 0; 
+const LOCK_REQUIRED_FRAMES = 6;  // 6프레임 연속 정조준 시 잠금
+const UNLOCK_THRESHOLD_CENTS = 15; // ±15센트 이상 벗어나야 잠금 해제 (관용도 높음)
 
+// 화면 표시 변수
 let displayCents = 0; 
 let targetCents = 0;
 
@@ -84,6 +94,7 @@ const statusDot = document.getElementById('status-dot');
 const guideMsg = document.getElementById('guide-msg');
 const stringContainer = document.getElementById('string-container');
 const instCards = document.querySelectorAll('.inst-card');
+
 // Modal Elements
 const dynamicCard = document.getElementById('dynamic-inst-card');
 const modal = document.getElementById('inst-modal');
@@ -93,6 +104,7 @@ const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 const dynDetail = document.getElementById('dyn-detail');
 
+// --- 4. 초기화 및 이벤트 리스너 ---
 function init() {
     renderStringButtons(currentInstrument);
     
@@ -117,6 +129,7 @@ function init() {
     requestAnimationFrame(updateVisualizer);
 }
 
+// --- 5. UI 및 악기 제어 함수 ---
 function activateInstrument(instKey, cardElement) {
     instCards.forEach(c => c.classList.remove('active'));
     cardElement.classList.add('active');
@@ -124,8 +137,7 @@ function activateInstrument(instKey, cardElement) {
     currentInstrument = instKey;
     tunedStrings.clear(); 
     
-    // 악기 변경 시 필터 범위 재설정
-    if(isRunning) applyInstrumentFilter();
+    if(isRunning) applyInstrumentFilter(); // 필터 범위 재조정
 
     resetUI(false);
     renderStringButtons(currentInstrument);
@@ -174,6 +186,7 @@ function renderStringButtons(instType) {
         const btn = document.createElement('button');
         btn.className = 'string-btn';
         btn.dataset.note = str.note; btn.dataset.octave = str.octave;
+        // str.num은 화면 표시용 (예: 6, A, Low C)
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
         stringContainer.appendChild(btn);
     });
@@ -205,6 +218,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
+// --- 6. 오디오 처리 코어 ---
 function toggleTuner() {
     if (isRunning) stopTuner();
     else startTuner();
@@ -215,12 +229,13 @@ async function startTuner() {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
+        // 에코 캔슬러 켜서 피드백 방지
         const constraints = { audio: { echoCancellation: true, autoGainControl: false, noiseSuppression: true } };
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
-        // 오디오 체인 구성: Input -> Compressor -> Filter -> Analyser
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
+        // 압축기 (Compressor): 큰 소리는 누르고 작은 소리는 키워서 분석 용이하게
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50;
         compressor.knee.value = 40;
@@ -228,7 +243,7 @@ async function startTuner() {
         compressor.attack.value = 0;
         compressor.release.value = 0.25;
 
-        // Bandpass 필터 대신 Lowpass로 고주파 노이즈 제거 (가장 안전한 방법)
+        // 필터 (LPF): 고주파 노이즈 제거
         biquadFilter = audioContext.createBiquadFilter();
         biquadFilter.type = "lowpass"; 
         
@@ -253,9 +268,8 @@ async function startTuner() {
 
 function applyInstrumentFilter() {
     if(!biquadFilter) return;
-    // 악기별로 최대 주파수 범위를 제한하여 고음 잡음을 컷팅합니다.
     const instData = instruments[currentInstrument];
-    const maxFreq = instData.range ? instData.range[1] * 2.5 : 2000; // 배음 고려 여유분
+    const maxFreq = instData.range ? instData.range[1] * 2.5 : 2000; 
     biquadFilter.frequency.value = maxFreq;
 }
 
@@ -274,10 +288,7 @@ function resetUI(keepTuned = false) {
     displayCents = 0; targetCents = 0;
     currentDisplayedNote = "--"; 
     
-    // 락킹 상태 초기화
-    isNoteLocked = false;
-    lockedNote = "";
-    lockDuration = 0;
+    isNoteLocked = false; lockedNote = ""; lockDuration = 0;
     kalman.reset();
 
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
@@ -301,30 +312,33 @@ function processAudio() {
 
     analyser.getFloatTimeDomainData(buf);
     
-    // [Noise Gate] RMS 볼륨 체크 - 너무 조용하면 분석 중지
+    // RMS(볼륨) 계산 - 노이즈 게이트
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    if (rms < 0.015) { // 임계값 미세 조정
-        // 소리가 끊기면 천천히 리셋
-        if(noteStabilityCounter > 0) noteStabilityCounter--;
-        else if (targetCents !== 0 && !isNoteLocked) { // 락 걸린 상태가 아니면 리셋
-            targetCents = 0;
+    // [중요 개선] 소리가 작아졌을 때 처리
+    if (rms < 0.015) { 
+        // 이미 락이 걸려있다면(성공 상태), 소리가 줄어들어도 화면을 리셋하지 않고 유지
+        if (isNoteLocked) {
+             // 유지 (사용자가 볼 수 있도록)
+        } else {
+             // 락이 안 걸렸는데 소리가 끊기면 천천히 리셋
+             if(noteStabilityCounter > 0) noteStabilityCounter--;
+             else if (targetCents !== 0) {
+                 targetCents = 0;
+             }
         }
         requestAnimationFrame(processAudio);
         return;
     }
 
     const pitch = yinPitchDetection(buf, audioContext.sampleRate);
-    
-    if (pitch !== -1) {
-        updateTuner(pitch);
-    } 
+    if (pitch !== -1) updateTuner(pitch);
     requestAnimationFrame(processAudio);
 }
 
-// YIN 알고리즘 (동일 유지)
+// YIN Pitch Detection Algorithm
 function yinPitchDetection(buffer, sampleRate) {
     const threshold = 0.15;
     const bufferSize = buffer.length;
@@ -365,7 +379,7 @@ function yinPitchDetection(buffer, sampleRate) {
         pitchInHz = sampleRate / tauEstimate;
     }
     
-    // 악기별 범위 제한 (Harmonic Noise 방지)
+    // 악기별 유효 범위 체크
     const range = instruments[currentInstrument].range || [25, 2000];
     if (pitchInHz > range[0] && pitchInHz < range[1]) return pitchInHz;
     return -1;
@@ -381,7 +395,7 @@ function updateTuner(frequency) {
     const detectedNoteKey = noteName + octave;
     const currentNoteKey = currentDisplayedNote + currentDisplayedOctave;
 
-    // 노트 안정화 로직
+    // 노트 변경 감지 및 안정화
     if (currentDisplayedNote === "--" || detectedNoteKey === currentNoteKey) {
         noteStabilityCounter = NOTE_CHANGE_THRESHOLD; 
         processCentsAndLocking(noteName, octave, rawCents, frequency);
@@ -392,47 +406,46 @@ function updateTuner(frequency) {
         if (noteStabilityCounter > NOTE_CHANGE_THRESHOLD) {
             currentDisplayedNote = noteName;
             currentDisplayedOctave = octave;
-            // 노트가 바뀌면 락 해제
-            isNoteLocked = false;
-            lockDuration = 0;
-            kalman.reset(); // 필터 리셋
+            isNoteLocked = false; lockDuration = 0; kalman.reset();
             processCentsAndLocking(noteName, octave, rawCents, frequency);
         }
     }
 }
 
+// --- 7. UI 업데이트 및 락킹 로직 (Hysteresis) ---
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
-    // 1. 칼만 필터로 Cents 값을 부드럽게 보정
+    // 1. 칼만 필터로 보정
     const smoothCents = kalman.filter(rawCents);
 
-    // 2. 락킹 로직 (Sticky Logic)
-    // 이미 락이 걸려있는 경우
+    // 2. 락킹 로직
     if (isNoteLocked) {
-        // 크게 벗어나야 락이 풀림 (Hysteresis)
+        // 이미 락이 걸린 상태: UNLOCK_THRESHOLD(15) 이상 벗어나야 해제됨
+        // 줄의 진동이 줄어들며 피치가 약간 떨어져도 락을 유지함
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            // 락 유지 중에는 무조건 0으로 표시 (사용자 심리 안정)
+            // 허용 범위 내라면 무조건 0(PERFECT) 유지
             targetCents = 0;
+            guideMsg.textContent = "PERFECT";
+            guideMsg.style.color = "var(--accent-green)";
         }
-    } 
-    // 락이 안 걸려있는 경우
-    else {
+    } else {
         targetCents = smoothCents;
-        // 정확한 음(-3 ~ +3) 안에 들어오면 카운트 증가
+        // ±3 센트 이내면 카운트 증가
         if (Math.abs(smoothCents) <= 3) {
             lockDuration++;
+            // 연속 프레임 만족 시 락 설정
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 lockedNote = noteName;
                 tunedStrings.add(noteName + octave);
                 playSuccessSound();
-                targetCents = 0; // 락 걸리는 순간 0으로 고정
+                targetCents = 0; 
             }
         } else {
-            lockDuration = 0; // 벗어나면 초기화
+            lockDuration = 0; 
         }
     }
 
@@ -444,7 +457,6 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
     
-    // 주파수는 너무 빠르게 변하면 어지러우므로 고정되면 멈춤
     if(!isLocked) freqEl.textContent = frequency.toFixed(1) + " Hz";
     
     const displayStr = isLocked ? "OK" : ((cents > 0 ? "+" : "") + cents);
@@ -465,7 +477,6 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH";
     } else {
-        // 미세 구간
         colorVar = style.getPropertyValue('--accent-green');
     }
 
@@ -483,10 +494,8 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
-    // 락 걸렸을 때는 아주 빠르게 중앙으로 이동, 아니면 부드럽게 이동
+    // 락 걸리면 빠르게, 아니면 부드럽게 이동
     const factor = isNoteLocked ? 0.4 : 0.15;
-    
-    // 선형 보간 (Lerp)
     displayCents += (targetCents - displayCents) * factor;
 
     let percentage = 50 + displayCents;
