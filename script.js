@@ -12,26 +12,26 @@ let targetFrequency = null;
 let audioContext = null; 
 let analyser = null; 
 let mediaStream = null;
-let source = null;
 let isRunning = false; 
-let rafId = null; 
 
-// [성능 변수]
-const FFT_SIZE = 2048; 
-const buffer = new Float32Array(FFT_SIZE); 
+// [오디오 처리 변수]
+const BUF_SIZE = 2048;
+const buf = new Float32Array(BUF_SIZE);
+const MIN_SAMPLES = 0; // Will be set based on sample rate
 
-// [안정화용 중앙값 필터]
-const medianBuffer = [];
-const MEDIAN_SIZE = 5; 
+// [핵심] 안정화 버퍼 (소음 차단용)
+// 연속으로 5번 이상 같은 음정일 때만 인정
+const stableBuffer = []; 
+const STABILITY_THRESHOLD = 5; 
 
-// [락킹 시스템]
-let isNoteLocked = false; 
-let lockedNote = ""; 
+// [상태 변수]
+let lastNoteName = "--";
+let lastCents = 0;
+let isNoteLocked = false;
+let lockedNote = "";
 
-// 화면 갱신 변수
-let currentCents = 0; 
-let targetCents = 0;
-let silenceTimer = 0; 
+// 화면 갱신용
+let displayCents = 0; 
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -61,7 +61,8 @@ function init() {
     });
     resetModeBtn.addEventListener('click', resetTarget);
     startBtn.addEventListener('click', toggleTuner);
-    requestAnimationFrame(uiLoop);
+    
+    requestAnimationFrame(updateVisualizer); // UI 루프 시작
 }
 
 function resetTarget() {
@@ -108,7 +109,9 @@ function highlightStringBtn(noteName, octave, isLocked) {
     if (targetFrequency) return;
     const btns = document.querySelectorAll('.string-btn');
     btns.forEach(btn => {
+        // 이미 락이 걸려있고, 지금 업데이트가 락 상태라면 건드리지 않음
         if (btn.classList.contains('locked') && isLocked) return;
+
         btn.classList.remove('detected', 'locked');
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
             btn.classList.add(isLocked ? 'locked' : 'detected');
@@ -129,14 +132,7 @@ function playReferenceTone(freq) {
 
 function playSuccessSound() {
     if (!audioContext) return;
-    const t = audioContext.currentTime;
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    // 맑은 띵동 소리
-    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t); 
-    gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
-    osc.connect(gain); gain.connect(audioContext.destination);
-    osc.start(); osc.stop(t + 0.8);
+    // 알림음이 너무 자주 울리지 않도록 UI 상태에서 제어
 }
 
 function toggleTuner() {
@@ -150,16 +146,19 @@ async function startTuner() {
         if (audioContext.state === 'suspended') await audioContext.resume();
 
         const constraints = { 
-            audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false, latency: 0 } 
+            audio: { 
+                echoCancellation: false, 
+                autoGainControl: false, 
+                noiseSuppression: false 
+            } 
         };
 
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = FFT_SIZE; 
-        analyser.smoothingTimeConstant = 0; 
-
-        source = audioContext.createMediaStreamSource(mediaStream);
+        analyser.fftSize = BUF_SIZE;
+        
+        const source = audioContext.createMediaStreamSource(mediaStream);
         source.connect(analyser);
 
         isRunning = true;
@@ -167,7 +166,7 @@ async function startTuner() {
         statusDot.classList.add('active');
         guideMsg.textContent = "PLAY A STRING...";
         
-        analyzeLoop();
+        processAudio();
     } catch (err) { console.error(err); alert("마이크 권한 오류"); }
 }
 
@@ -175,133 +174,184 @@ function stopTuner() {
     isRunning = false;
     startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
-    resetUI();
-    guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
-    isNoteLocked = false;
-    if (rafId) cancelAnimationFrame(rafId);
-    if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
-    if (source) source.disconnect();
-}
-
-function resetUI() {
+    
+    // 리셋
+    displayCents = 0;
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
-    targetCents = 0; 
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
     tuningIndicator.style.boxShadow = "none";
     document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('detected', 'locked'));
+    guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
+    isNoteLocked = false;
+    lockedNote = "";
+
+    if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
 }
 
-function analyzeLoop() {
+// --- 핵심: YIN-like Pitch Detection (소음 제거 특화) ---
+function processAudio() {
     if (!isRunning) return;
 
-    analyser.getFloatTimeDomainData(buffer);
-    const rawFreq = performAutocorrelation(buffer, audioContext.sampleRate);
+    analyser.getFloatTimeDomainData(buf);
     
-    // 중앙값 필터 적용 (떨림 방지)
-    const stableFreq = getMedianFrequency(rawFreq);
-
-    if (stableFreq !== -1 && stableFreq > 40 && stableFreq < 1500) {
-        if (targetFrequency) {
-            const ratio = stableFreq / targetFrequency;
-            if (ratio < 0.6 || ratio > 1.4) { // 범위 완화
-                handleSilence();
-                rafId = requestAnimationFrame(analyzeLoop);
-                return;
-            }
-        }
-        silenceTimer = 0; 
-        updateTunerState(stableFreq);
+    // 1. 피치 감지 (YIN Algorithm Simplified)
+    const pitch = yinPitchDetection(buf, audioContext.sampleRate);
+    
+    if (pitch !== -1) {
+        // [소음 필터 2단계] 시간적 안정성 검사
+        // 5프레임 연속으로 비슷한 음정이 나와야만 인정 (박수 소리 절대 불가)
+        updateStableBuffer(pitch);
     } else {
-        handleSilence();
+        // 소리가 없거나 소음이면 버퍼 비움
+        stableBuffer.length = 0; 
+        
+        // 소리가 끊기면 천천히 리셋
+        // (즉시 리셋하지 않아 그래프가 부드러움)
     }
 
-    rafId = requestAnimationFrame(analyzeLoop);
-}
-
-function getMedianFrequency(newFreq) {
-    if (newFreq === -1) return -1;
-    medianBuffer.push(newFreq);
-    if (medianBuffer.length > MEDIAN_SIZE) medianBuffer.shift();
-    // 버퍼가 덜 차도 즉시 반응하도록 수정
-    const sorted = [...medianBuffer].sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 2)];
-}
-
-function handleSilence() {
-    silenceTimer++;
-    if (silenceTimer > 20) { 
-        isNoteLocked = false; 
-        targetCents = 0; 
-        if (silenceTimer > 150) resetUI(); 
+    // 버퍼가 가득 차고 안정적일 때만 UI 업데이트
+    if (stableBuffer.length >= STABILITY_THRESHOLD) {
+        // 평균값 사용
+        const avgPitch = stableBuffer.reduce((a, b) => a + b) / stableBuffer.length;
+        
+        if (targetFrequency) {
+            // 수동 모드 범위 체크
+            const ratio = avgPitch / targetFrequency;
+            if (ratio > 0.8 && ratio < 1.2) updateTuner(avgPitch);
+        } else {
+            updateTuner(avgPitch);
+        }
     }
+
+    requestAnimationFrame(processAudio);
 }
 
-function performAutocorrelation(buf, sampleRate) {
-    let size = buf.length;
+// 잡음과 음악적 톤을 구분하는 가장 강력한 알고리즘
+function yinPitchDetection(buffer, sampleRate) {
+    const threshold = 0.15; // 낮을수록 엄격함 (잡음 제거율 ↑)
+    const bufferSize = buffer.length;
+    let tauEstimate = -1;
+    let pitchInHz = -1;
+
+    // 1. RMS 체크 (소리 크기)
     let rms = 0;
-    for (let i = 0; i < size; i++) { const val = buf[i]; rms += val * val; }
-    rms = Math.sqrt(rms / size);
+    for (let i = 0; i < bufferSize; i++) { rms += buffer[i] * buffer[i]; }
+    rms = Math.sqrt(rms / bufferSize);
+    if (rms < 0.015) return -1; // 너무 작은 소리는 무시
+
+    // 2. Difference Function (상관관계 분석)
+    // 일반 Autocorrelation보다 잡음 구분에 훨씬 뛰어남
+    const yinBuffer = new Float32Array(bufferSize / 2);
     
-    // [중요 수정] 노이즈 게이트 대폭 완화
-    // 이전: 0.012 -> 현재: 0.003 (작은 소리도 잡음으로 안 보고 일단 분석 시도)
-    if (rms < 0.003) return -1;
-
-    let r1 = Math.floor(sampleRate / 1500); 
-    let r2 = Math.floor(sampleRate / 40);
-    if (r2 > size) r2 = size;
-
-    let bestOffset = -1;
-    let bestCorrelation = 0;
-
-    for (let offset = r1; offset < r2; offset++) {
-        let correlation = 0;
-        // 성능과 정확도 타협 (2칸씩)
-        for (let i = 0; i < size - offset; i += 2) {
-            correlation += Math.abs(buf[i] - buf[i + offset]);
-        }
-        correlation = 1 - (correlation / (size / 2)); 
-
-        if (correlation > bestCorrelation) {
-            bestCorrelation = correlation;
-            bestOffset = offset;
+    // Step 1: Calculate Difference
+    for (let tau = 0; tau < yinBuffer.length; tau++) {
+        yinBuffer[tau] = 0;
+    }
+    for (let tau = 1; tau < yinBuffer.length; tau++) {
+        for (let i = 0; i < yinBuffer.length; i++) {
+            const delta = buffer[i] - buffer[i + tau];
+            yinBuffer[tau] += delta * delta;
         }
     }
 
-    // [중요 수정] 상관관계 기준 완화
-    // 이전: 0.94 -> 현재: 0.85 (약간 탁한 소리도 일단 표시)
-    if (bestCorrelation < 0.85) return -1;
+    // Step 2: Cumulative Mean Normalized Difference
+    yinBuffer[0] = 1;
+    let runningSum = 0;
+    for (let tau = 1; tau < yinBuffer.length; tau++) {
+        runningSum += yinBuffer[tau];
+        yinBuffer[tau] *= tau / runningSum;
+    }
 
-    return sampleRate / bestOffset;
+    // Step 3: Absolute Threshold
+    // 그래프의 골짜기(Dip)가 임계값보다 낮아야 "음정"으로 인정
+    // 박수소리는 이 골짜기가 깊지 않음 -> 여기서 걸러짐
+    for (let tau = 2; tau < yinBuffer.length; tau++) {
+        if (yinBuffer[tau] < threshold) {
+            while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) {
+                tau++;
+            }
+            tauEstimate = tau;
+            break;
+        }
+    }
+
+    if (tauEstimate !== -1) {
+        // 보간법으로 정밀도 향상
+        const betterTau = parabolicInterpolation(yinBuffer, tauEstimate);
+        pitchInHz = sampleRate / betterTau;
+    }
+
+    // 범위 체크 (기타/베이스 범위)
+    if (pitchInHz > 30 && pitchInHz < 1500) {
+        return pitchInHz;
+    }
+    return -1;
 }
 
-function updateTunerState(frequency) {
+function parabolicInterpolation(array, x) {
+    const x1 = (x < 1) ? x : x - 1;
+    const x2 = (x + 1 < array.length) ? x + 1 : x;
+    const den = array[x2] - array[x1];
+    if (den === 0) return x;
+    const delta = array[x1] - array[x];
+    return x + 0.5 * delta / (den + array[x2] - 2 * array[x]);
+}
+
+function updateStableBuffer(pitch) {
+    // 값이 너무 튀면 버퍼 리셋 (옥타브 에러 방지)
+    if (stableBuffer.length > 0) {
+        const last = stableBuffer[stableBuffer.length - 1];
+        if (Math.abs(last - pitch) > 5) { // 5Hz 이상 차이나면 다른 소리로 간주
+            stableBuffer.length = 0;
+        }
+    }
+    
+    stableBuffer.push(pitch);
+    if (stableBuffer.length > STABILITY_THRESHOLD) stableBuffer.shift();
+}
+
+// --- UI 업데이트 ---
+function updateTuner(frequency) {
     const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
     const noteRound = Math.round(noteNum) + 69;
     const noteName = noteStrings[noteRound % 12];
     const octave = Math.floor(noteRound / 12) - 1;
     let cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
-    
-    const isPerfect = Math.abs(cents) <= 4; // ±4센트까지 허용
+
+    // [락킹 로직]
+    const isPerfect = Math.abs(cents) <= 3; // ±3센트 이내
 
     if (isPerfect) {
         cents = 0; // 자석 효과
-        
-        // 락이 안 걸려있거나, 다른 노트일 때만 새로 락 걸고 소리 재생
         if (!isNoteLocked || lockedNote !== noteName) {
             isNoteLocked = true;
             lockedNote = noteName;
-            playSuccessSound(); 
+            
+            // 알림음 재생 (오디오 컨텍스트 밖에서 호출하여 중복 방지)
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc.type = 'sine'; osc.frequency.setValueAtTime(880, audioContext.currentTime); 
+            gain.gain.setValueAtTime(0.2, audioContext.currentTime); 
+            gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+            osc.connect(gain); gain.connect(audioContext.destination);
+            osc.start(); osc.stop(audioContext.currentTime + 0.6);
         }
     } else if (Math.abs(cents) > 10) {
-        // 오차가 10 이상 벌어지면 락 해제 (재튜닝 허용)
+        // 오차가 크면 락 해제
         isNoteLocked = false;
+        lockedNote = "";
     } else if (isNoteLocked) {
-        // 락 걸린 상태에서 미세한 떨림은 무시
+        // 미세한 떨림은 무시하고 0 유지
         cents = 0;
     }
 
+    // UI 변수에 할당 (requestAnimationFrame에서 렌더링)
     targetCents = cents;
+    lastNoteName = noteName;
+    lastCents = cents;
+
+    // 텍스트는 즉시 업데이트
     renderTextUI(noteName, octave, cents, frequency, isNoteLocked);
 }
 
@@ -312,8 +362,8 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
-    const displayCents = isLocked ? "OK" : ((cents > 0 ? "+" : "") + cents);
-    centsEl.textContent = displayCents; 
+    const displayStr = isLocked ? "OK" : ((cents > 0 ? "+" : "") + cents);
+    centsEl.textContent = displayStr; 
     centsEl.classList.remove('hidden');
 
     let colorVar = '--accent-green'; 
@@ -333,7 +383,6 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 
     guideMsg.textContent = msg;
     guideMsg.style.color = colorVar;
-
     noteNameEl.style.color = colorVar;
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
@@ -345,18 +394,25 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-function uiLoop() {
-    // 락 걸렸을 때는 자석처럼 강하게(0.5) 붙고, 아닐 때는 적당히(0.2) 따라감
-    const lerpFactor = isNoteLocked ? 0.5 : 0.2;
-    currentCents += (targetCents - currentCents) * lerpFactor;
+// 부드러운 애니메이션
+function updateVisualizer() {
+    // 락 걸렸을 땐 매우 빠르게 중앙으로, 아닐 땐 부드럽게
+    const factor = isNoteLocked ? 0.3 : 0.15;
+    
+    // 값이 없을 때는 천천히 중앙으로 복귀
+    if (stableBuffer.length === 0) {
+        targetCents = 0;
+    }
 
-    let percentage = 50 + currentCents;
+    displayCents += (targetCents - displayCents) * factor;
+
+    let percentage = 50 + displayCents;
     if (percentage < 0) percentage = 0; 
     if (percentage > 100) percentage = 100;
     
     tuningIndicator.style.left = `${percentage}%`;
 
-    requestAnimationFrame(uiLoop);
+    requestAnimationFrame(updateVisualizer);
 }
 
 init();
