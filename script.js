@@ -1,4 +1,4 @@
-// --- 악기 데이터 (표준 튜닝) ---
+// --- 악기 데이터 ---
 const instruments = {
     guitar: { name: "GUITAR", strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
     bass: { name: "BASS", strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
@@ -8,28 +8,30 @@ const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 
 // --- 전역 변수 ---
 let currentInstrument = 'guitar';
+let targetFrequency = null;
 let audioContext = null; 
 let analyser = null; 
 let mediaStream = null;
+let source = null;
 let isRunning = false; 
+let rafId = null; 
 
-// 오디오 처리
-const BUF_SIZE = 4096; // 2048 -> 4096 (해상도 2배 향상: 저음/고음 분리능 강화)
+// 오디오 처리 변수
+const BUF_SIZE = 2048;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심] 주파수 잠금 시스템 변수
-let lockedFrequency = 0;   // 현재 잡고 있는 기준 주파수
-let lockCounter = 0;       // 잠금 유지 카운터
-const LOCK_THRESHOLD = 5;  // 5프레임 연속 감지 시 잠금
-const UNLOCK_SILENCE = 15; // 15프레임 침묵 시 잠금 해제
+// [안정화] 중앙값 필터 (떨림 방지)
+const pitchBuffer = [];
+const BUFFER_SIZE = 5; 
 
-// 안정화 버퍼
-const stableBuffer = []; 
-const STABILITY_THRESHOLD = 3; 
-
+// [완료된 줄 저장소]
 const tunedStrings = new Set(); 
 
-// 화면 갱신용
+// 상태 변수
+let isNoteLocked = false;
+let lockedNote = "";
+
+// 화면 갱신용 (물리 엔진)
 let displayCents = 0; 
 let targetCents = 0;
 let silenceTimer = 0;
@@ -44,14 +46,17 @@ const centsEl = document.getElementById('cents');
 const tuningIndicator = document.getElementById('tuning-indicator');
 const statusDot = document.getElementById('status-dot');
 const guideMsg = document.getElementById('guide-msg');
+const modeBadge = document.getElementById('mode-badge');
 const stringContainer = document.getElementById('string-container');
+const resetModeBtn = document.getElementById('reset-mode-btn');
 const instCards = document.querySelectorAll('.inst-card');
 
 function init() {
     renderStringButtons(currentInstrument);
     
     instCards.forEach(card => {
-        card.addEventListener('click', () => {
+        card.addEventListener('click', (e) => {
+            e.stopPropagation();
             instCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             currentInstrument = card.dataset.type;
@@ -60,7 +65,15 @@ function init() {
             renderStringButtons(currentInstrument);
         });
     });
-    startBtn.addEventListener('click', toggleTuner);
+
+    // 화면 터치로 튜너 시작 (버튼은 뺐지만 기능은 유지)
+    document.body.addEventListener('click', (e) => {
+        // 악기 카드 클릭 등이 아닐 때만
+        if (!e.target.closest('.inst-card') && !e.target.closest('.string-btn')) {
+            if (!isRunning) startTuner();
+        }
+    });
+
     requestAnimationFrame(updateVisualizer);
 }
 
@@ -71,33 +84,26 @@ function renderStringButtons(instType) {
     data.strings.forEach(str => {
         const btn = document.createElement('button');
         btn.className = 'string-btn';
+        btn.dataset.freq = str.freq;
         btn.dataset.note = str.note; btn.dataset.octave = str.octave;
-        btn.dataset.freq = str.freq; // 주파수 정보 필수
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
-        // 버튼 클릭 기능 제거 (순수 오토 모드)
         stringContainer.appendChild(btn);
     });
 }
 
-// 가장 가까운 줄 찾아서 불 켜기
 function highlightClosestString(frequency, isLocked) {
     const btns = document.querySelectorAll('.string-btn');
     let closestBtn = null;
     let minDiff = Infinity;
 
     btns.forEach(btn => {
-        const btnKey = btn.dataset.note + btn.dataset.octave;
-        
-        // 기존 상태 초기화 (tuned는 제외)
-        if (!tunedStrings.has(btnKey)) {
-            btn.classList.remove('detected', 'locked', 'tuned');
+        if (!btn.classList.contains('tuned')) {
+            btn.classList.remove('detected', 'locked');
         } else {
             btn.classList.remove('detected', 'locked'); 
-            btn.classList.add('tuned');
         }
 
         const targetFreq = parseFloat(btn.dataset.freq);
-        // 주파수 차이 비교 (Log scale)
         const diff = Math.abs(1200 * Math.log2(frequency / targetFreq));
 
         if (diff < minDiff) {
@@ -106,11 +112,22 @@ function highlightClosestString(frequency, isLocked) {
         }
     });
 
-    // 오차 300센트(반음 3개) 이내일 때만 해당 줄로 인식
-    if (closestBtn && minDiff < 300) {
+    if (closestBtn && minDiff < 350) {
         closestBtn.classList.remove('tuned'); 
         closestBtn.classList.add(isLocked ? 'locked' : 'detected');
+        
+        if (isLocked) {
+            const key = closestBtn.dataset.note + closestBtn.dataset.octave;
+            tunedStrings.add(key);
+        }
     }
+    
+    btns.forEach(btn => {
+        if (btn !== closestBtn) {
+            const key = btn.dataset.note + btn.dataset.octave;
+            if (tunedStrings.has(key)) btn.classList.add('tuned');
+        }
+    });
 }
 
 function playSuccessSound() {
@@ -124,12 +141,9 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.6);
 }
 
-function toggleTuner() {
-    if (isRunning) stopTuner();
-    else startTuner();
-}
-
 async function startTuner() {
+    if (isRunning) return;
+
     try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
@@ -143,24 +157,25 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
         
-        const source = audioContext.createMediaStreamSource(mediaStream);
+        source = audioContext.createMediaStreamSource(mediaStream);
         source.connect(analyser);
 
         isRunning = true;
-        startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
-        guideMsg.textContent = "PLAY A STRING...";
+        guideMsg.textContent = "줄을 튕겨주세요";
         
         processAudio();
-    } catch (err) { console.error(err); alert("마이크 권한이 필요합니다."); }
+    } catch (err) { 
+        console.error(err); 
+        guideMsg.textContent = "터치하여 마이크 켜기";
+    }
 }
 
 function stopTuner() {
     isRunning = false;
-    startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
-    resetUI(true); 
-    guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
+    resetUI(true);
+    guideMsg.textContent = "터치하여 시작";
     if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
 }
 
@@ -169,15 +184,16 @@ function resetUI(keepTuned = false) {
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
-    tuningIndicator.style.boxShadow = "none";
+    tuningIndicator.style.left = "50%"; // 바늘 중앙 복귀
     
-    // 상태 변수 초기화
-    lockedFrequency = 0;
-    lockCounter = 0;
-
     document.querySelectorAll('.string-btn').forEach(b => {
         b.classList.remove('detected', 'locked');
-        if (!keepTuned) b.classList.remove('tuned');
+        if (keepTuned) {
+            const key = b.dataset.note + b.dataset.octave;
+            if (tunedStrings.has(key)) b.classList.add('tuned');
+        } else {
+            b.classList.remove('tuned');
+        }
     });
 }
 
@@ -186,133 +202,67 @@ function processAudio() {
 
     analyser.getFloatTimeDomainData(buf);
     
-    // 1. 피치 감지 (YIN Algorithm)
-    const rawPitch = yinPitchDetection(buf, audioContext.sampleRate);
+    // Autocorrelation
+    const pitch = autoCorrelate(buf, audioContext.sampleRate);
     
-    // 2. [핵심] 주파수 잠금 (Frequency Locking) 로직
-    let finalPitch = -1;
+    if (pitch !== -1) {
+        // [안정화 1단계] 버퍼링
+        pitchBuffer.push(pitch);
+        if (pitchBuffer.length > BUFFER_SIZE) pitchBuffer.shift();
 
-    if (rawPitch !== -1) {
-        silenceTimer = 0; // 소리 있음
-
-        if (lockedFrequency === 0) {
-            // 잠긴 줄이 없으면 안정화 버퍼에 쌓음
-            updateStableBuffer(rawPitch);
+        // 버퍼가 어느 정도 찼을 때 중앙값 계산 (튀는 값 제거)
+        if (pitchBuffer.length >= 3) {
+            const sorted = [...pitchBuffer].sort((a,b) => a-b);
+            const medianPitch = sorted[Math.floor(sorted.length/2)];
             
-            // 안정적인 값이 모이면 잠금 시작!
-            if (stableBuffer.length >= STABILITY_THRESHOLD) {
-                const avg = stableBuffer.reduce((a, b) => a + b) / stableBuffer.length;
-                lockedFrequency = avg; // 현재 주파수를 기준으로 잠금
-                lockCounter = 0;
-                finalPitch = avg;
-            }
-        } else {
-            // 이미 잠긴 줄이 있으면, 그 주변 소리인지 확인
-            // 허용 범위: ±20% (꽤 넓게 잡아서 비브라토나 튜닝 중 변화 허용)
-            // 하지만 다른 줄(보통 30% 이상 차이남)은 차단됨
-            const ratio = rawPitch / lockedFrequency;
-            if (ratio > 0.8 && ratio < 1.2) {
-                // 범위 내 소리면 업데이트하고 잠금 기준도 살짝 최신화 (Follow)
-                finalPitch = rawPitch;
-                lockedFrequency = rawPitch; 
-                lockCounter = 0;
-            } else {
-                // 범위 밖 소리(다른 줄 간섭)면 무시!
-                // 단, 아주 오랫동안 다른 소리가 나면 사용자가 줄을 바꾼 것임
-                lockCounter++;
-                if (lockCounter > 20) { // 약 0.3초 이상 다른 소리면 잠금 해제
-                    lockedFrequency = 0;
-                    stableBuffer.length = 0;
-                }
-            }
+            silenceTimer = 0;
+            updateTuner(medianPitch);
         }
     } else {
-        // 소리가 안 들림 (Silence)
+        // 소리가 없으면 버퍼 초기화하지 않고(잔향 유지) 타이머만 증가
         silenceTimer++;
-        if (silenceTimer > UNLOCK_SILENCE) {
-            // 소리가 멈추면 잠금 해제
-            lockedFrequency = 0;
-            stableBuffer.length = 0;
-            if (targetCents !== 0) {
-                targetCents = 0;
-                if (silenceTimer > 60) resetUI(true);
-            }
+        if (silenceTimer > 20) { // 0.3초 이상 조용하면
+            targetCents = 0; // 바늘 중앙으로
+            pitchBuffer.length = 0; // 버퍼 비움
+            if (silenceTimer > 100) resetUI(true); // 오래 조용하면 텍스트 리셋
         }
     }
 
-    // 최종 결정된 피치로 UI 업데이트
-    if (finalPitch !== -1) {
-        updateTuner(finalPitch);
-    }
-
-    requestAnimationFrame(processAudio);
+    rafId = requestAnimationFrame(processAudio);
 }
 
-function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.15;
-    const bufferSize = buffer.length;
-    let tauEstimate = -1;
-    let pitchInHz = -1;
-
-    // RMS 체크 (노이즈 게이트)
+function autoCorrelate(buf, sampleRate) {
+    let size = buf.length;
     let rms = 0;
-    for (let i = 0; i < bufferSize; i++) { rms += buffer[i] * buffer[i]; }
-    rms = Math.sqrt(rms / bufferSize);
+    for (let i = 0; i < size; i++) { const val = buf[i]; rms += val * val; }
+    rms = Math.sqrt(rms / size);
     
-    // 1번 줄 인식을 위해 게이트를 낮춤 (0.005)
-    if (rms < 0.005) return -1; 
+    // 노이즈 게이트 (0.008 = 적당히 민감함)
+    if (rms < 0.008) return -1;
 
-    const yinBuffer = new Float32Array(bufferSize / 2);
-    yinBuffer[0] = 1;
-    let runningSum = 0;
-    
-    for (let tau = 1; tau < yinBuffer.length; tau++) {
-        let deltaSum = 0;
-        for (let i = 0; i < yinBuffer.length; i++) {
-            const delta = buffer[i] - buffer[i + tau];
-            deltaSum += delta * delta;
+    let r1 = Math.floor(sampleRate / 1200); 
+    let r2 = Math.floor(sampleRate / 40);   
+    if (r2 > size) r2 = size;
+
+    let bestOffset = -1;
+    let bestCorrelation = 0;
+
+    for (let offset = r1; offset < r2; offset++) {
+        let correlation = 0;
+        // 성능 타협: 2칸씩 건너뛰며 계산 (모바일 최적화)
+        for (let i = 0; i < size - offset; i+=2) {
+            correlation += Math.abs(buf[i] - buf[i + offset]);
         }
-        yinBuffer[tau] = deltaSum;
-        runningSum += yinBuffer[tau];
-        if (runningSum !== 0) yinBuffer[tau] *= tau / runningSum;
-        else yinBuffer[tau] = 1;
-    }
+        correlation = 1 - (correlation / (size/2));
 
-    for (let tau = 2; tau < yinBuffer.length; tau++) {
-        if (yinBuffer[tau] < threshold) {
-            while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) {
-                tau++;
-            }
-            tauEstimate = tau;
-            break;
+        if (correlation > bestCorrelation) {
+            bestCorrelation = correlation;
+            bestOffset = offset;
         }
     }
 
-    if (tauEstimate !== -1) {
-        const x0 = tauEstimate;
-        const x1 = (x0 < 1) ? x0 : x0 - 1;
-        const x2 = (x0 + 1 < yinBuffer.length) ? x0 + 1 : x0;
-        const den = yinBuffer[x2] - yinBuffer[x1];
-        if (den === 0) tauEstimate = x0;
-        else {
-            const delta = yinBuffer[x1] - yinBuffer[x0];
-            tauEstimate = x0 + 0.5 * delta / (den + yinBuffer[x2] - 2 * yinBuffer[x0]);
-        }
-        pitchInHz = sampleRate / tauEstimate;
-    }
-
-    if (pitchInHz > 30 && pitchInHz < 1500) return pitchInHz;
+    if (bestCorrelation > 0.95) return sampleRate / bestOffset;
     return -1;
-}
-
-function updateStableBuffer(pitch) {
-    if (stableBuffer.length > 0) {
-        const last = stableBuffer[stableBuffer.length - 1];
-        // 급격한 변화(옥타브 튐) 방지
-        if (Math.abs(last - pitch) > 10) stableBuffer.length = 0;
-    }
-    stableBuffer.push(pitch);
-    if (stableBuffer.length > STABILITY_THRESHOLD) stableBuffer.shift();
 }
 
 function updateTuner(frequency) {
@@ -322,53 +272,86 @@ function updateTuner(frequency) {
     const octave = Math.floor(noteRound / 12) - 1;
     let cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
 
+    // [핵심] 자석(Magnet) 효과 - 오차 ±4센트 이내면 0으로 고정
+    const isPerfect = Math.abs(cents) <= 4;
+
+    if (isPerfect) {
+        cents = 0; // 강제 0 처리 (바늘 떨림 방지)
+        
+        // 락이 안 걸려있거나 다른 노트면 락 걸기
+        if (!isNoteLocked || lockedNote !== noteName) {
+            isNoteLocked = true;
+            lockedNote = noteName;
+            
+            // 완료 목록에 없으면 소리 재생
+            const btnKey = noteName + octave;
+            if (!tunedStrings.has(btnKey)) {
+                playSuccessSound();
+            }
+        }
+    } else if (Math.abs(cents) > 8) { 
+        // 오차가 8센트 이상 벌어지면 락 해제 (다시 움직임)
+        isNoteLocked = false;
+        lockedNote = "";
+    } else if (isNoteLocked) {
+        // 락 걸린 상태에서 4~8센트 사이 미세한 떨림은 무시하고 0 유지
+        cents = 0; 
+    }
+
     targetCents = cents;
     
-    // UI 업데이트
-    noteNameEl.textContent = noteName;
+    renderTextUI(noteName, octave, cents, frequency, isNoteLocked);
+}
+
+function renderTextUI(note, octave, cents, frequency, isLocked) {
+    noteNameEl.textContent = note; 
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
     
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
-    const isPerfect = Math.abs(cents) <= 3;
-    
-    if (isPerfect) {
-        centsEl.textContent = "OK";
-        tuningIndicator.style.backgroundColor = "var(--accent-green)";
-        noteNameEl.style.color = "var(--accent-green)";
-        guideMsg.textContent = "PERFECT!";
-        guideMsg.style.color = "var(--accent-green)";
-        
-        // 해당 줄을 완료 목록에 추가 (중복 방지)
-        const btnKey = noteName + octave;
-        if (!tunedStrings.has(btnKey)) {
-            tunedStrings.add(btnKey);
-            playSuccessSound(); // 최초 완료 시에만 소리
-        }
-        highlightClosestString(frequency, true);
-        
-    } else {
-        centsEl.textContent = (cents > 0 ? "+" : "") + cents;
-        if (cents < 0) {
-            tuningIndicator.style.backgroundColor = "var(--accent-blue)";
-            noteNameEl.style.color = "var(--accent-blue)";
-            guideMsg.textContent = "TOO LOW ▼";
-            guideMsg.style.color = "var(--accent-blue)";
-        } else {
-            tuningIndicator.style.backgroundColor = "var(--accent-pink)";
-            noteNameEl.style.color = "var(--accent-pink)";
-            guideMsg.textContent = "TOO HIGH ▲";
-            guideMsg.style.color = "var(--accent-pink)";
-        }
-        highlightClosestString(frequency, false);
-    }
+    const displayStr = isLocked ? "OK" : ((cents > 0 ? "+" : "") + cents);
+    centsEl.textContent = displayStr; 
     centsEl.classList.remove('hidden');
+
+    let colorVar = '--accent-green'; 
+    let msg = "PERFECT";
+    const style = getComputedStyle(document.body);
+
+    if (isLocked) {
+        colorVar = style.getPropertyValue('--accent-green');
+        msg = "PERFECT";
+    } else if (cents < 0) {
+        colorVar = style.getPropertyValue('--accent-blue');
+        msg = "TOO LOW";
+    } else {
+        colorVar = style.getPropertyValue('--accent-pink');
+        msg = "TOO HIGH";
+    }
+
+    guideMsg.textContent = msg;
+    guideMsg.style.color = colorVar;
+    noteNameEl.style.color = colorVar;
+    noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
+    centsEl.style.backgroundColor = colorVar;
+
+    highlightClosestString(frequency, isLocked);
+    
+    tuningIndicator.style.backgroundColor = colorVar;
+    if(isLocked) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
+    else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
+// [스마트 스무딩] 물리 엔진
 function updateVisualizer() {
-    displayCents += (targetCents - displayCents) * 0.2;
+    // 락 걸렸을 때는 자석처럼 매우 강하게(0.4) 붙고, 아닐 때는 부드럽게(0.15) 이동
+    const factor = isNoteLocked ? 0.4 : 0.15;
+    
+    displayCents += (targetCents - displayCents) * factor;
+
     let percentage = 50 + displayCents;
+    
+    // 바늘 범위 제한 (0% ~ 100%)
     if (percentage < 0) percentage = 0; 
     if (percentage > 100) percentage = 100;
     
