@@ -6,10 +6,7 @@
     --accent-blue: #00e1ff;
     --accent-pink: #ff006a;
     --accent-yellow: #ffd900;
-    
-    /* 카드 배경색 약간 투명하게 변경 */
     --bg-card: rgba(30, 30, 40, 0.5);
-    
     --font-heading: 'Inter', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 }
@@ -20,10 +17,10 @@ body {
     background-color: var(--bg-main);
     color: var(--text-primary);
     font-family: var(--font-heading);
-    margin: 0; 
-    padding: 0;
-    overflow: hidden; /* 스크롤 방지 */
-    height: 100dvh; /* 모바일 주소창 대응 */
+    margin: 0; padding: 0;
+    overflow: hidden; height: 100dvh;
+    user-select: none; /* 텍스트 선택 방지 */
+    -webkit-tap-highlight-color: transparent;
 }
 
 .bg-fx {
@@ -32,27 +29,17 @@ body {
     z-index: -1; pointer-events: none;
 }
 
-/* [수정됨] 전체 화면 컨테이너 */
 .container {
-    width: 100%;
-    height: 100%;
-    padding: 1.5rem; /* 화면 가장자리 여백 */
-    display: flex; 
-    flex-direction: column; 
-    justify-content: space-between;
-    /* 박스 스타일 제거 */
-    background: transparent;
-    box-shadow: none;
-    border: none;
-    border-radius: 0;
+    width: 100%; height: 100%; padding: 1.5rem;
+    display: flex; flex-direction: column; justify-content: space-between;
+    cursor: pointer; /* 전체가 클릭 가능함을 암시 */
 }
 
 .header-badge {
     display: inline-flex; align-items: center; gap: 10px;
     background: var(--bg-card); padding: 8px 16px; border-radius: 100px;
     border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 10px;
-    align-self: center;
-    backdrop-filter: blur(5px);
+    align-self: center; backdrop-filter: blur(5px);
 }
 h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 .version {
@@ -83,8 +70,7 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 .inst-info .detail { font-family: var(--font-mono); font-size: 0.5rem; color: #666; }
 
 .inst-card.active {
-    background: rgba(0, 255, 157, 0.05);
-    border-color: var(--accent-green);
+    background: rgba(0, 255, 157, 0.05); border-color: var(--accent-green);
 }
 .inst-card.active .inst-icon { filter: grayscale(0%) opacity(1); }
 .inst-card.active .name { color: var(--accent-green); }
@@ -126,7 +112,7 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 .badge { font-size: 0.7rem; font-weight: bold; padding: 4px 8px; background: #222; border-radius: 4px; color: #fff; }
 .hidden { opacity: 0; pointer-events: none; }
 
-.string-control-panel { width: 100%; margin-bottom: 10px; }
+.string-control-panel { width: 100%; margin-bottom: 20px; } /* 하단 여백 확보 */
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 
 .string-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -135,8 +121,7 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
     color: var(--text-secondary); padding: 14px; border-radius: 12px; 
     font-family: var(--font-heading); font-weight: 800; display: flex; flex-direction: column; align-items: center;
     transition: all 0.3s;
-    /* 클릭 금지 스타일 */
-    cursor: default; pointer-events: none;
+    cursor: default; pointer-events: none; /* 클릭 불가 */
 }
 .string-btn .str-num { font-family: var(--font-mono); font-size: 0.6rem; color: #555; margin-bottom: 4px; }
 
@@ -151,11 +136,7 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
     box-shadow: 0 0 25px var(--accent-green);
     transform: scale(1.05);
 }
-
-#start-btn {
-    width: 100%; padding: 18px; border: none; border-radius: 16px;
-    background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
-    cursor: pointer; box-shadow: 0 10px 30px -10px rgba(0, 255, 157, 0.5);
-    font-family: var(--font-heading); font-weight: 900; font-size: 1.1rem; color: #000;
+.string-btn.manual-target { /* 수동 모드 스타일 제거해도 되지만 안전상 남겨둠 */
+    border-color: var(--accent-yellow); color: #fff;
+    background: rgba(255, 217, 0, 0.1);
 }
-#start-btn.stop { background: linear-gradient(90deg, var(--accent-pink), var(--accent-yellow)); }

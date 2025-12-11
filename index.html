@@ -11,7 +11,7 @@
 <body>
     <div class="bg-fx"></div>
 
-    <div class="container">
+    <div class="container" id="app-container">
         <header>
             <div class="header-badge">
                 <div class="status-indicator" id="status-dot"></div>
@@ -50,7 +50,7 @@
         <main>
             <div class="tuner-centerpiece">
                 <div class="mode-badge" id="mode-badge">AUTO MODE</div>
-                <div class="guide-message" id="guide-msg">READY TO TUNE</div>
+                <div class="guide-message" id="guide-msg">화면을 터치하여 시작</div>
                 
                 <div class="visualizer-ring">
                     <div class="ring-track"></div>
@@ -75,12 +75,6 @@
                 <div class="string-selector" id="string-container"></div>
             </div>
         </main>
-
-        <footer>
-            <button id="start-btn">
-                <span class="btn-text">ACTIVATE MIC</span>
-            </button>
-        </footer>
     </div>
 
     <script src="script.js"></script>
