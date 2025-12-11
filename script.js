@@ -15,10 +15,10 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 반응형 칼만 필터 (빠른 반응속도) ---
+// --- 2. 칼만 필터 (반응성 최적화) ---
 class SimpleKalmanFilter {
     constructor(r = 1, q = 1, a = 1, b = 0, c = 1) {
-        this.R = r; // 값이 낮을수록 반응이 빠름 (민감함)
+        this.R = r; 
         this.Q = q; 
         this.A = a; this.B = b; this.C = c;
         this.cov = NaN; this.x = NaN; 
@@ -53,22 +53,24 @@ const BUF_SIZE = 2048;
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-// [수정] 필터 R값을 30으로 대폭 낮춤 -> 그래프가 즉각적으로 반응함
-const kalman = new SimpleKalmanFilter(30, 5); 
+// R값을 20으로 낮춰 반응 속도를 더 빠르게 함
+const kalman = new SimpleKalmanFilter(20, 5); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let potentialNote = "";          
 let noteStabilityCounter = 0;    
-// [수정] 노트 변경 감지 민감도 조정 (8 -> 5) : 반응성 향상
 const NOTE_CHANGE_THRESHOLD = 5; 
 
-// 락킹(고정) 설정
+// [핵심 수정] 락킹(PERFECT) 조건 대폭 완화
 let isNoteLocked = false;
 let lockedNote = "";
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 15; // 안정적으로 맞았을 때만 고정
-const LOCK_TOLERANCE_CENTS = 4;  // ±4센트 이내일 때만 락킹 시도 (정밀도 보장)
+// 10프레임(약 0.2초)만 유지하면 잠김 -> 더 빨리 됨
+const LOCK_REQUIRED_FRAMES = 10; 
+// ±8센트 이내면 PERFECT (기존 4에서 2배 완화) -> 웬만하면 맞음
+const LOCK_TOLERANCE_CENTS = 8;  
+const UNLOCK_THRESHOLD_CENTS = 25; 
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -142,6 +144,7 @@ function activateInstrument(instKey, cardElement) {
     instCards.forEach(c => c.classList.remove('active'));
     cardElement.classList.add('active');
     currentInstrument = instKey;
+    tunedStrings.clear(); // 악기 변경 시 완료 기록 초기화
     localStorage.setItem('churchTuner_current', instKey);
     if (instKey !== 'guitar' && instKey !== 'bass') {
         localStorage.setItem('churchTuner_dynamic', instKey);
@@ -202,14 +205,27 @@ function highlightStringBtn(noteName, octave, isLocked) {
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
         btn.classList.remove('detected', 'locked'); 
+        
+        // 1. 이미 완료된 줄이면 .tuned 유지
         if (tunedStrings.has(btnKey)) {
             btn.classList.add('tuned');
         } else {
             btn.classList.remove('tuned');
         }
+
+        // 2. 현재 감지된 줄 표시
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
-            btn.classList.remove('tuned');
-            btn.classList.add(isLocked ? 'locked' : 'detected');
+            // 현재 완료(Locked) 상태라면 즉시 .tuned 클래스 추가 (중요!)
+            if (isLocked) {
+                btn.classList.add('tuned');
+                btn.classList.remove('detected', 'locked'); // tuned가 우선
+            } else {
+                // 아직 맞추는 중이라면 detected
+                // (이미 tuned된 줄이라도 다시 칠 때 표시를 위해 tuned 잠시 제거 안 함, 겹쳐 보임 방지)
+                if (!btn.classList.contains('tuned')) {
+                    btn.classList.add('detected');
+                }
+            }
         }
     });
 }
@@ -225,7 +241,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 (핵심) ---
+// --- 5. 오디오 처리 ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
@@ -236,8 +252,6 @@ async function startTuner() {
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
-        
-        // [수정] 컴프레서 설정: 소리를 더 자연스럽게 받아들임
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50;
         compressor.ratio.value = 12;
@@ -305,12 +319,10 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [수정] 소음 게이트: 0.02 미만이면 조용한 것으로 간주하고 그래프 복귀
-    if (rms < 0.02) { 
+    if (rms < 0.015) { // 임계값
         if (!isNoteLocked) {
              if(noteStabilityCounter > 0) noteStabilityCounter--;
              else if (Math.abs(targetCents) > 1) {
-                 // 소리가 끊기면 천천히 중앙으로 돌아옴
                  targetCents *= 0.9;
              }
         }
@@ -324,9 +336,9 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    // [수정] 임계값을 0.15로 완화하여 악기 소리 감지율을 높임
-    // 대신 noteStabilityCounter로 말소리를 걸러냄
-    const threshold = 0.15; 
+    // [중요 수정] 소음 허용도 증가: 임계값을 0.20으로 높여 
+    // 주변 잡음이 섞여도 주기성(Periodicity)이 있는 악기 소리를 더 잘 잡도록 함
+    const threshold = 0.20; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -375,13 +387,10 @@ function updateTuner(frequency) {
     const detectedNoteKey = noteName + octave;
     const currentNoteKey = currentDisplayedNote + currentDisplayedOctave;
 
-    // [중요] 말소리 차단 로직: 같은 음정이 연속으로 감지될 때만 화면에 표시
     if (currentDisplayedNote === "--" || detectedNoteKey === currentNoteKey) {
-        // 이미 표시중인 음과 같으면 카운터 유지/증가
         if(noteStabilityCounter < 20) noteStabilityCounter++;
         processCentsAndLocking(noteName, octave, rawCents, frequency);
     } else {
-        // 새로운 음이 감지됨
         if (potentialNote === detectedNoteKey) {
             noteStabilityCounter++;
         } else {
@@ -389,7 +398,6 @@ function updateTuner(frequency) {
             noteStabilityCounter = 0; 
         }
 
-        // 일정 시간 이상 안정된 음일 때만 화면 갱신 (말소리는 여기서 걸러짐)
         if (noteStabilityCounter > NOTE_CHANGE_THRESHOLD) {
             currentDisplayedNote = noteName;
             currentDisplayedOctave = octave;
@@ -403,24 +411,27 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
     const smoothCents = kalman.filter(rawCents);
 
     if (isNoteLocked) {
-        // 락킹 해제 조건: ±15센트 이상 벗어나면 해제
-        if (Math.abs(smoothCents) > 15) {
+        if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            targetCents = 0; // 락 상태에선 중앙 고정
+            targetCents = 0;
             guideMsg.textContent = "PERFECT";
         }
     } else {
         targetCents = smoothCents;
-        // 락킹 진입 조건: ±4센트 이내로 들어오면 카운트
+        // [완화] ±8센트 이내면 PERFECT 카운트 시작
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 lockedNote = noteName;
+                
+                // [중요] 완료되는 순간 즉시 버튼 상태 업데이트
                 tunedStrings.add(noteName + octave);
+                highlightStringBtn(noteName, octave, true);
+                
                 playSuccessSound();
                 targetCents = 0; 
             }
@@ -450,17 +461,18 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     let msg = "TUNING...";
     const style = getComputedStyle(document.body);
 
+    // [UI] 판정 기준 완화에 따른 색상 피드백 조정
     if (isLocked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -4) { 
+    } else if (cents < -8) { // 기준 완화
         colorVar = style.getPropertyValue('--accent-blue');
-        msg = "TOO LOW"; // 왼쪽 (파랑)
-    } else if (cents > 4) {
+        msg = "TOO LOW"; 
+    } else if (cents > 8) {
         colorVar = style.getPropertyValue('--accent-pink');
-        msg = "TOO HIGH"; // 오른쪽 (분홍)
+        msg = "TOO HIGH"; 
     } else {
-        // ±4 이내지만 아직 락킹 전
+        // 근접했을 때 (아직 락킹 전)
         colorVar = style.getPropertyValue('--accent-green');
         msg = "HOLD...";
     }
@@ -471,6 +483,8 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
+    // highlightStringBtn는 락킹 순간에 직접 호출하기도 하지만, 
+    // 여기서도 상태 유지를 위해 호출 (isLocked 상태 전달)
     highlightStringBtn(note, octave, isLocked);
     
     tuningIndicator.style.backgroundColor = colorVar;
@@ -479,16 +493,10 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
-    // 락 상태일 땐 중앙 고정, 아닐 땐 즉각적인 위치 반영
     const factor = isNoteLocked ? 0.3 : 0.2; 
     displayCents += (targetCents - displayCents) * factor;
 
-    // [핵심] Cents값(-50 ~ +50)을 퍼센트(0 ~ 100)로 매핑
-    // 음이 낮음(-) -> displayCents 음수 -> 50보다 작아짐 -> 왼쪽 이동
-    // 음이 높음(+) -> displayCents 양수 -> 50보다 커짐 -> 오른쪽 이동
     let percentage = 50 + displayCents;
-    
-    // 화면 밖으로 나가지 않게 제한
     if (percentage < 5) percentage = 5; 
     if (percentage > 95) percentage = 95;
     
