@@ -1,41 +1,38 @@
 // --- 1. 악기 데이터 ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "6-String", range: [60, 400], strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "4-String", range: [30, 200], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
+    guitar: { name: "GUITAR", icon: "🎸", detail: "6-String", range: [60, 500], strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
+    bass: { name: "BASS", icon: "🎸", detail: "4-String", range: [30, 300], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
     chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", range: [20, 2000], isChromatic: true, strings: [], columns: 1 },
-    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 500], strings: [ { note: "G", octave: 4, freq: 392.00, num: 4 }, { note: "C", octave: 4, freq: 261.63, num: 3 }, { note: "E", octave: 4, freq: 329.63, num: 2 }, { note: "A", octave: 4, freq: 440.00, num: 1 } ], columns: 2 },
-    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [190, 700], strings: [ { note: "G", octave: 3, freq: 196.00, num: 4 }, { note: "D", octave: 4, freq: 293.66, num: 3 }, { note: "A", octave: 4, freq: 440.00, num: 2 }, { note: "E", octave: 5, freq: 659.25, num: 1 } ], columns: 2 },
-    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 250], strings: [ { note: "C", octave: 2, freq: 65.41, num: 4 }, { note: "G", octave: 2, freq: 98.00, num: 3 }, { note: "D", octave: 3, freq: 146.83, num: 2 }, { note: "A", octave: 3, freq: 220.00, num: 1 } ], columns: 2 },
-    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 200], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
-    flute: { name: "FLUTE", icon: "🎼", detail: "Standard", range: [200, 1000], strings: [ { note: "A", octave: 4, freq: 440.00, num: "A" }, { note: "A#", octave: 4, freq: 466.16, num: "Bb" } ], columns: 2 },
-    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb-Key", range: [100, 800], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 },
-    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb-Key", range: [100, 800], strings: [ { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, { note: "A#", octave: 3, freq: 466.16, num: "G" } ], columns: 2 },
-    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb-Key", range: [150, 900], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 }
+    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 600], strings: [ { note: "G", octave: 4, freq: 392.00, num: 4 }, { note: "C", octave: 4, freq: 261.63, num: 3 }, { note: "E", octave: 4, freq: 329.63, num: 2 }, { note: "A", octave: 4, freq: 440.00, num: 1 } ], columns: 2 },
+    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 800], strings: [ { note: "G", octave: 3, freq: 196.00, num: 4 }, { note: "D", octave: 4, freq: 293.66, num: 3 }, { note: "A", octave: 4, freq: 440.00, num: 2 }, { note: "E", octave: 5, freq: 659.25, num: 1 } ], columns: 2 },
+    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 300], strings: [ { note: "C", octave: 2, freq: 65.41, num: 4 }, { note: "G", octave: 2, freq: 98.00, num: 3 }, { note: "D", octave: 3, freq: 146.83, num: 2 }, { note: "A", octave: 3, freq: 220.00, num: 1 } ], columns: 2 },
+    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 250], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
+    flute: { name: "FLUTE", icon: "🎼", detail: "Standard", range: [200, 1500], strings: [ { note: "A", octave: 4, freq: 440.00, num: "A" }, { note: "A#", octave: 4, freq: 466.16, num: "Bb" } ], columns: 2 },
+    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb-Key", range: [100, 1000], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 },
+    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb-Key", range: [100, 1000], strings: [ { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, { note: "A#", octave: 3, freq: 466.16, num: "G" } ], columns: 2 },
+    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb-Key", range: [150, 1200], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 }
 };
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 칼만 필터 (반응성 최적화) ---
-class SimpleKalmanFilter {
-    constructor(r = 1, q = 1, a = 1, b = 0, c = 1) {
-        this.R = r; 
-        this.Q = q; 
-        this.A = a; this.B = b; this.C = c;
-        this.cov = NaN; this.x = NaN; 
+// --- 2. 안정화 유틸리티 (핵심) ---
+// 단순 칼만 필터 대신 '이동 평균(Rolling Average)'을 사용하여 바늘을 묵직하게 만듦
+class RollingAverage {
+    constructor(size) {
+        this.size = size;
+        this.buffer = [];
     }
-    filter(z) {
-        if (isNaN(this.x)) {
-            this.x = z; this.cov = this.R;
-        } else {
-            const predX = this.A * this.x;
-            const predCov = ((this.A * this.cov) * this.A) + this.Q;
-            const K = predCov * this.C * (1 / ((this.C * predCov * this.C) + this.R));
-            this.x = predX + K * (z - (this.C * predX));
-            this.cov = predCov - (K * this.C * predCov);
-        }
-        return this.x;
+    add(value) {
+        if (Math.abs(value) > 1000) return; // 튀는 값 무시
+        this.buffer.push(value);
+        if (this.buffer.length > this.size) this.buffer.shift();
     }
-    reset() { this.x = NaN; this.cov = NaN; }
+    getAverage() {
+        if (this.buffer.length === 0) return 0;
+        const sum = this.buffer.reduce((a, b) => a + b, 0);
+        return sum / this.buffer.length;
+    }
+    reset() { this.buffer = []; }
 }
 
 // --- 3. 전역 변수 ---
@@ -49,28 +46,29 @@ let inputSource = null;
 let biquadFilter = null; 
 let compressor = null;   
 
-const BUF_SIZE = 2048;
+const BUF_SIZE = 4096; // 버퍼 사이즈를 늘려 저음 인식률 향상 (특히 베이스)
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-// R값을 20으로 낮춰 반응 속도를 더 빠르게 함
-const kalman = new SimpleKalmanFilter(20, 5); 
+// [수정] 15개의 데이터를 평균내어 묵직하게 이동
+const smoother = new RollingAverage(15);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let potentialNote = "";          
 let noteStabilityCounter = 0;    
+// [수정] 노트가 바뀌는 것을 방지하기 위해 더 강력한 고정력 부여
 const NOTE_CHANGE_THRESHOLD = 5; 
 
-// [핵심 수정] 락킹(PERFECT) 조건 대폭 완화
+// 락킹(고정) 설정
 let isNoteLocked = false;
 let lockedNote = "";
 let lockDuration = 0; 
-// 10프레임(약 0.2초)만 유지하면 잠김 -> 더 빨리 됨
-const LOCK_REQUIRED_FRAMES = 10; 
-// ±8센트 이내면 PERFECT (기존 4에서 2배 완화) -> 웬만하면 맞음
-const LOCK_TOLERANCE_CENTS = 8;  
-const UNLOCK_THRESHOLD_CENTS = 25; 
+
+// [수정] 판정 기준 대폭 완화 (사용자 편의성)
+const LOCK_REQUIRED_FRAMES = 8; // 8프레임만 유지하면 OK
+const LOCK_TOLERANCE_CENTS = 10; // ±10센트 이내면 PERFECT (매우 관대함)
+const UNLOCK_THRESHOLD_CENTS = 30; // ±30센트 이상 벗어나야 풀림
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -144,7 +142,7 @@ function activateInstrument(instKey, cardElement) {
     instCards.forEach(c => c.classList.remove('active'));
     cardElement.classList.add('active');
     currentInstrument = instKey;
-    tunedStrings.clear(); // 악기 변경 시 완료 기록 초기화
+    // tunedStrings.clear(); // 사용자가 튜닝 기록 유지하길 원하면 주석 처리
     localStorage.setItem('churchTuner_current', instKey);
     if (instKey !== 'guitar' && instKey !== 'bass') {
         localStorage.setItem('churchTuner_dynamic', instKey);
@@ -199,29 +197,36 @@ function renderStringButtons(instType) {
     });
 }
 
+// [핵심] 하단 버튼 불 들어오게 하는 로직 개선
 function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
+    
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
-        btn.classList.remove('detected', 'locked'); 
         
-        // 1. 이미 완료된 줄이면 .tuned 유지
+        // 1. 기본 초기화 (tuned 클래스는 유지 여부 결정)
+        btn.classList.remove('detected', 'locked');
+
+        // 2. 이미 튜닝 완료된 줄은 tuned 상태 유지
         if (tunedStrings.has(btnKey)) {
             btn.classList.add('tuned');
         } else {
             btn.classList.remove('tuned');
         }
 
-        // 2. 현재 감지된 줄 표시
+        // 3. 현재 감지된 노트와 일치하는 버튼 찾기
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
-            // 현재 완료(Locked) 상태라면 즉시 .tuned 클래스 추가 (중요!)
+            // 지금 튜닝 중인 이 줄이 맞다면
+            
             if (isLocked) {
+                // 완료(Lock) 상태라면 무조건 형광색(tuned)
                 btn.classList.add('tuned');
-                btn.classList.remove('detected', 'locked'); // tuned가 우선
+                btn.classList.remove('detected', 'locked');
             } else {
-                // 아직 맞추는 중이라면 detected
-                // (이미 tuned된 줄이라도 다시 칠 때 표시를 위해 tuned 잠시 제거 안 함, 겹쳐 보임 방지)
+                // 아직 맞추는 중이라면 파란색(detected) -> 시각적 피드백 즉시 제공
+                // 이미 tuned 된 줄이라도, 다시 칠 때 감지되고 있다는 걸 보여주기 위해 detected 추가 가능
+                // 하지만 사용자는 '완료됐는지'가 중요하므로, 이미 tuned면 건드리지 않음
                 if (!btn.classList.contains('tuned')) {
                     btn.classList.add('detected');
                 }
@@ -269,7 +274,7 @@ async function startTuner() {
         applyInstrumentFilter();
 
         isRunning = true;
-        kalman.reset();
+        smoother.reset();
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
         guideMsg.textContent = "PLAY A STRING...";
@@ -297,7 +302,7 @@ function resetUI(keepTuned = false) {
     displayCents = 0; targetCents = 0;
     currentDisplayedNote = "--"; 
     isNoteLocked = false; lockedNote = ""; lockDuration = 0;
-    kalman.reset();
+    smoother.reset();
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
@@ -319,11 +324,12 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    if (rms < 0.015) { // 임계값
+    // 소음 게이트: 0.015 미만이면 입력 무시 (그래프는 천천히 떨어짐)
+    if (rms < 0.015) { 
         if (!isNoteLocked) {
              if(noteStabilityCounter > 0) noteStabilityCounter--;
              else if (Math.abs(targetCents) > 1) {
-                 targetCents *= 0.9;
+                 targetCents *= 0.95; // 아주 천천히 중앙으로
              }
         }
         requestAnimationFrame(processAudio);
@@ -335,10 +341,9 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
+// [핵심] YIN 알고리즘 최적화
 function yinPitchDetection(buffer, sampleRate) {
-    // [중요 수정] 소음 허용도 증가: 임계값을 0.20으로 높여 
-    // 주변 잡음이 섞여도 주기성(Periodicity)이 있는 악기 소리를 더 잘 잡도록 함
-    const threshold = 0.20; 
+    const threshold = 0.15; // 적절한 임계값
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -387,10 +392,13 @@ function updateTuner(frequency) {
     const detectedNoteKey = noteName + octave;
     const currentNoteKey = currentDisplayedNote + currentDisplayedOctave;
 
+    // [핵심] Sticky Note Logic
+    // 현재 표시된 노트와 같다면 바로 업데이트, 다르면 카운터 확인
     if (currentDisplayedNote === "--" || detectedNoteKey === currentNoteKey) {
-        if(noteStabilityCounter < 20) noteStabilityCounter++;
+        if(noteStabilityCounter < 10) noteStabilityCounter++; // 신뢰도 증가
         processCentsAndLocking(noteName, octave, rawCents, frequency);
     } else {
+        // 다른 노트가 감지됨
         if (potentialNote === detectedNoteKey) {
             noteStabilityCounter++;
         } else {
@@ -398,39 +406,43 @@ function updateTuner(frequency) {
             noteStabilityCounter = 0; 
         }
 
+        // 새로운 노트가 일정 시간 지속되어야만 화면 교체 (헤맴 방지)
         if (noteStabilityCounter > NOTE_CHANGE_THRESHOLD) {
             currentDisplayedNote = noteName;
             currentDisplayedOctave = octave;
-            isNoteLocked = false; lockDuration = 0; kalman.reset();
+            isNoteLocked = false; lockDuration = 0; 
+            smoother.reset(); // 노트 바뀌면 평균 필터 초기화
             processCentsAndLocking(noteName, octave, rawCents, frequency);
         }
     }
 }
 
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
-    const smoothCents = kalman.filter(rawCents);
+    // [핵심] 이동 평균으로 값 평탄화 (떨림 방지)
+    smoother.add(rawCents);
+    const smoothCents = smoother.getAverage();
 
     if (isNoteLocked) {
+        // 이미 완료된 상태: ±30센트 이상 튀지 않으면 계속 완료 유지 (관용성 극대화)
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            targetCents = 0;
+            targetCents = 0; // 중앙 고정
             guideMsg.textContent = "PERFECT";
         }
     } else {
         targetCents = smoothCents;
-        // [완화] ±8센트 이내면 PERFECT 카운트 시작
+        // [핵심] 튜닝 판정: ±10센트 이내면 카운트 (관용성 높음)
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 lockedNote = noteName;
                 
-                // [중요] 완료되는 순간 즉시 버튼 상태 업데이트
                 tunedStrings.add(noteName + octave);
-                highlightStringBtn(noteName, octave, true);
+                highlightStringBtn(noteName, octave, true); // 버튼 즉시 점등
                 
                 playSuccessSound();
                 targetCents = 0; 
@@ -461,18 +473,17 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     let msg = "TUNING...";
     const style = getComputedStyle(document.body);
 
-    // [UI] 판정 기준 완화에 따른 색상 피드백 조정
     if (isLocked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -8) { // 기준 완화
+    } else if (cents < -10) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 8) {
+    } else if (cents > 10) {
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
     } else {
-        // 근접했을 때 (아직 락킹 전)
+        // 근접 구역 (초록색)
         colorVar = style.getPropertyValue('--accent-green');
         msg = "HOLD...";
     }
@@ -483,8 +494,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
-    // highlightStringBtn는 락킹 순간에 직접 호출하기도 하지만, 
-    // 여기서도 상태 유지를 위해 호출 (isLocked 상태 전달)
+    // 실시간으로 감지된 줄 표시 업데이트
     highlightStringBtn(note, octave, isLocked);
     
     tuningIndicator.style.backgroundColor = colorVar;
@@ -493,7 +503,8 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
-    const factor = isNoteLocked ? 0.3 : 0.2; 
+    // 부드럽게 따라가도록 선형 보간
+    const factor = isNoteLocked ? 0.2 : 0.15; 
     displayCents += (targetCents - displayCents) * factor;
 
     let percentage = 50 + displayCents;
