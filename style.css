@@ -1,0 +1,201 @@
+:root {
+    /* 세련된 다크 테마 컬러 팔레트 */
+    --bg-main: #030305;
+    --bg-panel: #0a0a0f;
+    --bg-card: #13131a;
+    
+    --text-primary: #ffffff;
+    --text-secondary: #8a8a9b;
+
+    /* 엑센트 컬러 (더 깊이감 있는 네온) */
+    --accent-green: #00ff9d;
+    --accent-blue: #00e1ff;
+    --accent-pink: #ff006a;
+    --accent-yellow: #ffd900;
+
+    /* 폰트 설정 */
+    --font-heading: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: var(--font-heading);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    overflow: hidden; /* 배경 효과를 위해 */
+}
+
+/* 배경 은은한 빛 효과 */
+.bg-fx {
+    position: fixed; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle at center, rgba(0, 255, 157, 0.03) 0%, rgba(3, 3, 5, 0) 60%);
+    z-index: -1; pointer-events: none;
+}
+
+.container {
+    width: 380px;
+    background: var(--bg-panel);
+    padding: 2.5rem 2rem;
+    border-radius: 24px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    text-align: center;
+    position: relative;
+    backdrop-filter: blur(10px);
+}
+
+/* --- Header --- */
+.header-badge {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--bg-card); padding: 8px 16px; border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 30px;
+}
+h1 { font-size: 1rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
+.version {
+    font-size: 0.6rem; font-weight: 800; background: linear-gradient(45deg, var(--accent-green), var(--accent-blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    padding-left: 5px; border-left: 1px solid #333;
+}
+.status-indicator {
+    width: 6px; height: 6px; border-radius: 50%; background-color: #333;
+    box-shadow: 0 0 0 2px var(--bg-card); transition: all 0.3s;
+}
+.status-indicator.active { background-color: var(--accent-green); box-shadow: 0 0 10px var(--accent-green); }
+
+
+/* --- Section Labels --- */
+.section-label {
+    font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-secondary);
+    text-align: left; margin-bottom: 12px; letter-spacing: 1px; opacity: 0.7;
+}
+
+
+/* --- Instrument Cards (Hip Design) --- */
+.instrument-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 35px; }
+.inst-card {
+    background: var(--bg-card); border-radius: 16px; padding: 16px 10px;
+    cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex; flex-direction: column; align-items: center;
+}
+.inst-icon { font-size: 1.8rem; margin-bottom: 10px; filter: grayscale(100%) opacity(0.5); transition: all 0.3s; }
+.inst-info { display: flex; flex-direction: column; gap: 4px; }
+.inst-info .name { font-size: 0.75rem; font-weight: 800; color: var(--text-secondary); }
+.inst-info .detail { font-family: var(--font-mono); font-size: 0.55rem; color: #555; }
+
+/* Active Card State */
+.inst-card.active {
+    background: linear-gradient(145deg, rgba(0, 255, 157, 0.05), var(--bg-card));
+    border-color: var(--accent-green);
+    box-shadow: 0 10px 20px -10px rgba(0, 255, 157, 0.3);
+    transform: translateY(-2px);
+}
+.inst-card.active .inst-icon { filter: grayscale(0%) opacity(1); transform: scale(1.1); }
+.inst-card.active .name { color: var(--accent-green); }
+.inst-card:hover:not(.active) { border-color: #333; transform: translateY(-1px); }
+
+
+/* --- Main Tuner Centerpiece (Wow Factor) --- */
+.tuner-centerpiece {
+    margin: 20px 0 40px; position: relative;
+    display: flex; flex-direction: column; align-items: center;
+}
+.guide-message {
+    font-family: var(--font-mono); font-size: 0.8rem; font-weight: bold;
+    color: var(--text-secondary); height: 20px; margin-bottom: 20px;
+    text-transform: uppercase; letter-spacing: 2px;
+}
+
+/* 중앙 비주얼라이저 링 */
+.visualizer-ring {
+    position: relative; width: 200px; height: 200px;
+    display: flex; justify-content: center; align-items: center;
+    margin-bottom: 20px;
+}
+/* 배경 트랙 */
+.ring-track {
+    position: absolute; top: 50%; left: 0; width: 100%; height: 4px;
+    background: #1a1a20; border-radius: 10px; transform: translateY(-50%);
+    overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+}
+/* 움직이는 중앙 인디케이터 (빛나는 바) */
+.tuning-indicator {
+    position: absolute; top: 50%; left: 50%; /* 초기 중앙 */
+    width: 12px; height: 30px; /* 세로로 긴 바 형태 */
+    background: var(--accent-green); border-radius: 10px;
+    transform: translate(-50%, -50%); /* 정확한 중앙 정렬을 위한 보정 */
+    box-shadow: 0 0 20px var(--accent-green), 0 0 40px var(--accent-green);
+    transition: left 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s, box-shadow 0.3s;
+    z-index: 2;
+}
+/* 중앙 노트 표시 */
+.note-content { z-index: 3; text-align: center; }
+#note-name {
+    font-size: 5.5rem; font-weight: 900; color: #222;
+    transition: all 0.2s; -webkit-text-stroke: 2px #333;
+}
+#note-name.active {
+    color: var(--accent-green); -webkit-text-stroke: 0;
+    text-shadow: 0 0 50px var(--accent-green);
+}
+.octave { font-family: var(--font-mono); font-size: 1.5rem; color: #444; margin-left: 5px; }
+
+/* Frequency Data */
+.frequency-data {
+    font-family: var(--font-mono); color: var(--text-secondary);
+    display: flex; align-items: center; gap: 10px;
+}
+#frequency { font-size: 0.9rem; }
+.badge {
+    font-size: 0.7rem; font-weight: bold; padding: 4px 8px;
+    background: #222; border-radius: 4px; color: var(--text-primary);
+}
+.hidden { opacity: 0; }
+
+
+/* --- String Controls (Modern Pads) --- */
+.string-control-panel { margin-bottom: 30px; }
+.string-selector {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.string-btn {
+    background: var(--bg-card); border: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary); padding: 15px; border-radius: 12px;
+    cursor: pointer; font-family: var(--font-heading); font-weight: 800;
+    display: flex; flex-direction: column; align-items: center;
+    transition: all 0.2s; position: relative; overflow: hidden;
+}
+.string-btn:hover { border-color: #444; color: var(--text-primary); }
+.string-btn .str-num { font-family: var(--font-mono); font-size: 0.6rem; color: #555; margin-bottom: 4px; }
+
+.string-btn.active-string {
+    border-color: var(--accent-green); color: var(--text-primary);
+    background: linear-gradient(to bottom right, rgba(0, 255, 157, 0.1), var(--bg-card));
+}
+.string-btn.active-string::after { /* 클릭 시 빛나는 효과 */
+    content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle, var(--accent-green) 0%, transparent 70%);
+    opacity: 0.2; animation: pulse 1s infinite;
+}
+@keyframes pulse { 0% { opacity: 0.1; } 50% { opacity: 0.3; } 100% { opacity: 0.1; } }
+
+
+/* --- Main Button (Glowing CTA) --- */
+#start-btn {
+    position: relative; width: 100%; padding: 18px; border: none; border-radius: 16px;
+    background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+    cursor: pointer; overflow: hidden; transition: all 0.3s;
+    box-shadow: 0 10px 30px -10px rgba(0, 255, 157, 0.5);
+}
+#start-btn .btn-text {
+    position: relative; z-index: 2; font-family: var(--font-heading);
+    font-weight: 900; font-size: 1.1rem; color: var(--bg-main); letter-spacing: 1px;
+}
+#start-btn:hover { transform: translateY(-2px); box-shadow: 0 20px 40px -10px rgba(0, 255, 157, 0.7); }
+#start-btn.stop { background: linear-gradient(90deg, var(--accent-pink), var(--accent-yellow)); box-shadow: 0 10px 30px -10px rgba(255, 0, 106, 0.5); }
+#start-btn.stop:hover { box-shadow: 0 20px 40px -10px rgba(255, 0, 106, 0.7); }

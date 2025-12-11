@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CHURCH TUNER</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="iap-overlay" class="iap-overlay hidden">
+        <div class="iap-arrow">☝️</div>
+        <div class="iap-text">
+            <p><strong>마이크 권한 사용을 위해</strong></p>
+            <p>우측 상단 메뉴 <span class="icon">⋮</span> 또는 <span class="icon">⋯</span> 누르고</p>
+            <p class="highlight">'브라우저로 열기'를 선택하세요.</p>
+        </div>
+    </div>
+
+    <div class="bg-fx"></div>
+
+    <div class="container">
+        <header>
+            <div class="header-badge">
+                <div class="status-indicator" id="status-dot"></div>
+                <h1>CHURCH TUNER</h1>
+                <span class="version">PRO</span>
+            </div>
+        </header>
+
+        <section class="instrument-section">
+            <p class="section-label">// SELECT SYSTEM</p>
+            <div class="instrument-grid">
+                <div class="inst-card active" data-type="guitar">
+                    <div class="inst-icon">🎸</div>
+                    <div class="inst-info">
+                        <span class="name">GUITAR</span>
+                        <span class="detail">6-String</span>
+                    </div>
+                </div>
+                <div class="inst-card" data-type="bass">
+                    <div class="inst-icon">🎻</div>
+                    <div class="inst-info">
+                        <span class="name">BASS</span>
+                        <span class="detail">4-String</span>
+                    </div>
+                </div>
+                <div class="inst-card" data-type="ukulele">
+                    <div class="inst-icon">🌴</div>
+                    <div class="inst-info">
+                        <span class="name">UKULELE</span>
+                        <span class="detail">GCEA</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <main>
+            <div class="tuner-centerpiece">
+                <div class="guide-message" id="guide-msg">READY TO TUNE</div>
+                <div class="visualizer-ring">
+                    <div class="ring-track"></div>
+                    <div class="tuning-indicator" id="tuning-indicator"></div>
+                    <div class="note-content">
+                        <span id="note-name">--</span>
+                        <span id="octave" class="octave"></span>
+                    </div>
+                </div>
+                <div class="frequency-data">
+                    <span id="frequency">0.0 Hz</span>
+                    <span id="cents" class="badge hidden">0</span>
+                </div>
+            </div>
+
+            <div class="string-control-panel">
+                 <p class="section-label">// MANUAL CHECK</p>
+                <div class="string-selector" id="string-container"></div>
+            </div>
+        </main>
+
+        <footer>
+            <button id="start-btn">
+                <span class="btn-text">ACTIVATE MIC</span>
+                <span class="btn-glow"></span>
+            </button>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
