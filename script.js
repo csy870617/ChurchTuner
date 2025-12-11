@@ -13,16 +13,16 @@ let audioContext = null;
 let analyser = null; 
 let mediaStream = null;
 let source = null;
+
+let filterNode = null; // [핵심] 밴드패스 필터 노드
 let isRunning = false; 
 let rafId = null; 
 
-// 오디오 처리 변수
+// 오디오 처리
 const BUF_SIZE = 2048;
 const buf = new Float32Array(BUF_SIZE);
-
-// [안정화] 중앙값 필터 (떨림 방지)
-const pitchBuffer = [];
-const BUFFER_SIZE = 5; 
+const stableBuffer = []; 
+const STABILITY_THRESHOLD = 3; 
 
 // [완료된 줄 저장소]
 const tunedStrings = new Set(); 
@@ -31,7 +31,7 @@ const tunedStrings = new Set();
 let isNoteLocked = false;
 let lockedNote = "";
 
-// 화면 갱신용 (물리 엔진)
+// 화면 갱신용
 let displayCents = 0; 
 let targetCents = 0;
 let silenceTimer = 0;
@@ -61,19 +61,19 @@ function init() {
             card.classList.add('active');
             currentInstrument = card.dataset.type;
             tunedStrings.clear(); 
-            resetUI(false);
+            setManualMode(null);
             renderStringButtons(currentInstrument);
         });
     });
 
-    // 화면 터치로 튜너 시작 (버튼은 뺐지만 기능은 유지)
+    // 화면 터치로 시작
     document.body.addEventListener('click', (e) => {
-        // 악기 카드 클릭 등이 아닐 때만
         if (!e.target.closest('.inst-card') && !e.target.closest('.string-btn')) {
             if (!isRunning) startTuner();
         }
     });
 
+    resetModeBtn.addEventListener('click', () => setManualMode(null));
     requestAnimationFrame(updateVisualizer);
 }
 
@@ -87,7 +87,66 @@ function renderStringButtons(instType) {
         btn.dataset.freq = str.freq;
         btn.dataset.note = str.note; btn.dataset.octave = str.octave;
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
+        
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // 배경 터치 방지
+            // 소리 재생 없이 모드만 변경 (공연장 모드)
+            setManualMode(str);
+        });
         stringContainer.appendChild(btn);
+    });
+}
+
+// [핵심] 필터 모드 제어
+function setManualMode(stringData) {
+    if (stringData) {
+        // 매뉴얼 모드: 해당 줄 주파수만 통과시키는 강력한 필터 적용
+        targetFrequency = stringData.freq;
+        modeBadge.textContent = `TARGET: ${stringData.num}번줄 (${stringData.note})`;
+        modeBadge.classList.add('manual');
+        resetModeBtn.classList.remove('hidden');
+        guideMsg.textContent = "주변 소음 차단 중...";
+        guideMsg.style.color = "var(--accent-yellow)";
+        
+        // 필터 적용 (BandPass)
+        if (filterNode && audioContext) {
+            filterNode.type = 'bandpass';
+            filterNode.frequency.value = targetFrequency;
+            filterNode.Q.value = 5; // 좁은 대역폭 (주변 소음 강력 차단)
+        }
+        updateButtonStyles(stringData.freq);
+    } else {
+        // 오토 모드: 모든 소리 통과 (필터 끔)
+        targetFrequency = null;
+        modeBadge.textContent = "AUTO MODE";
+        modeBadge.classList.remove('manual');
+        resetModeBtn.classList.add('hidden');
+        guideMsg.textContent = "줄을 튕겨주세요";
+        guideMsg.style.color = "var(--text-secondary)";
+        
+        if (filterNode && audioContext) {
+            filterNode.type = 'allpass'; // 필터 해제
+            filterNode.frequency.value = 0;
+        }
+        updateButtonStyles(null);
+    }
+    resetUI();
+}
+
+function updateButtonStyles(activeFreq) {
+    const btns = document.querySelectorAll('.string-btn');
+    btns.forEach(btn => {
+        const freq = parseFloat(btn.dataset.freq);
+        btn.classList.remove('target');
+        
+        const key = btn.dataset.note + btn.dataset.octave;
+        if (tunedStrings.has(key)) btn.classList.add('tuned');
+        else btn.classList.remove('tuned');
+
+        if (activeFreq && Math.abs(freq - activeFreq) < 0.1) {
+            btn.classList.add('target');
+            btn.classList.remove('tuned');
+        }
     });
 }
 
@@ -112,10 +171,9 @@ function highlightClosestString(frequency, isLocked) {
         }
     });
 
-    if (closestBtn && minDiff < 350) {
+    if (closestBtn && minDiff < 300) {
         closestBtn.classList.remove('tuned'); 
         closestBtn.classList.add(isLocked ? 'locked' : 'detected');
-        
         if (isLocked) {
             const key = closestBtn.dataset.note + closestBtn.dataset.octave;
             tunedStrings.add(key);
@@ -136,9 +194,9 @@ function playSuccessSound() {
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
     osc.type = 'sine'; osc.frequency.setValueAtTime(880, t); 
-    gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    gain.gain.setValueAtTime(0.3, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5); // 짧고 명확하게
     osc.connect(gain); gain.connect(audioContext.destination);
-    osc.start(); osc.stop(t + 0.6);
+    osc.start(); osc.stop(t + 0.5);
 }
 
 async function startTuner() {
@@ -148,8 +206,13 @@ async function startTuner() {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
+        // [중요] 공연장용 마이크 설정 (자동 게인 끄기)
         const constraints = { 
-            audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } 
+            audio: { 
+                echoCancellation: false, 
+                autoGainControl: false, // 소음이 커도 게인을 멋대로 줄이지 않음
+                noiseSuppression: false 
+            } 
         };
 
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -157,12 +220,20 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
         
+        // [필터 체인 생성] Source -> Filter -> Analyser
         source = audioContext.createMediaStreamSource(mediaStream);
-        source.connect(analyser);
+        filterNode = audioContext.createBiquadFilter();
+        
+        // 초기값: 오토 모드 (필터 없음)
+        filterNode.type = 'allpass';
+        
+        source.connect(filterNode);
+        filterNode.connect(analyser);
 
         isRunning = true;
         statusDot.classList.add('active');
         guideMsg.textContent = "줄을 튕겨주세요";
+        startBtn.classList.add('active'); // 시각적 활성화
         
         processAudio();
     } catch (err) { 
@@ -174,6 +245,7 @@ async function startTuner() {
 function stopTuner() {
     isRunning = false;
     statusDot.classList.remove('active');
+    startBtn.classList.remove('active');
     resetUI(true);
     guideMsg.textContent = "터치하여 시작";
     if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
@@ -184,7 +256,7 @@ function resetUI(keepTuned = false) {
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
-    tuningIndicator.style.left = "50%"; // 바늘 중앙 복귀
+    tuningIndicator.style.left = "50%";
     
     document.querySelectorAll('.string-btn').forEach(b => {
         b.classList.remove('detected', 'locked');
@@ -202,30 +274,44 @@ function processAudio() {
 
     analyser.getFloatTimeDomainData(buf);
     
-    // Autocorrelation
-    const pitch = autoCorrelate(buf, audioContext.sampleRate);
-    
-    if (pitch !== -1) {
-        // [안정화 1단계] 버퍼링
-        pitchBuffer.push(pitch);
-        if (pitchBuffer.length > BUFFER_SIZE) pitchBuffer.shift();
+    // RMS 체크 (노이즈 게이트) - 시끄러운 곳에서도 작동하도록 약간 높임
+    let rms = 0;
+    for (let i = 0; i < BUF_SIZE; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / BUF_SIZE);
 
-        // 버퍼가 어느 정도 찼을 때 중앙값 계산 (튀는 값 제거)
-        if (pitchBuffer.length >= 3) {
-            const sorted = [...pitchBuffer].sort((a,b) => a-b);
+    // 노이즈 게이트: 0.01 (너무 작은 소리는 무시)
+    if (rms < 0.01) {
+        handleSilence();
+        rafId = requestAnimationFrame(processAudio);
+        return;
+    }
+
+    const pitch = autoCorrelate(buf, audioContext.sampleRate);
+
+    if (pitch !== -1) {
+        // [이중 필터링]
+        // 1. 하드웨어 필터(BandPass)는 이미 적용됨 (Source->Filter->Analyser)
+        // 2. 소프트웨어 필터: 한번 더 범위 체크
+        if (targetFrequency) {
+            const ratio = pitch / targetFrequency;
+            if (ratio < 0.85 || ratio > 1.15) {
+                // 필터를 통과했더라도 주파수가 너무 튀면 무시
+                handleSilence();
+                rafId = requestAnimationFrame(processAudio);
+                return;
+            }
+        }
+
+        updateStableBuffer(pitch);
+
+        if (stableBuffer.length >= STABILITY_THRESHOLD) {
+            const sorted = [...stableBuffer].sort((a,b) => a-b);
             const medianPitch = sorted[Math.floor(sorted.length/2)];
-            
             silenceTimer = 0;
             updateTuner(medianPitch);
         }
     } else {
-        // 소리가 없으면 버퍼 초기화하지 않고(잔향 유지) 타이머만 증가
-        silenceTimer++;
-        if (silenceTimer > 20) { // 0.3초 이상 조용하면
-            targetCents = 0; // 바늘 중앙으로
-            pitchBuffer.length = 0; // 버퍼 비움
-            if (silenceTimer > 100) resetUI(true); // 오래 조용하면 텍스트 리셋
-        }
+        handleSilence();
     }
 
     rafId = requestAnimationFrame(processAudio);
@@ -233,13 +319,6 @@ function processAudio() {
 
 function autoCorrelate(buf, sampleRate) {
     let size = buf.length;
-    let rms = 0;
-    for (let i = 0; i < size; i++) { const val = buf[i]; rms += val * val; }
-    rms = Math.sqrt(rms / size);
-    
-    // 노이즈 게이트 (0.008 = 적당히 민감함)
-    if (rms < 0.008) return -1;
-
     let r1 = Math.floor(sampleRate / 1200); 
     let r2 = Math.floor(sampleRate / 40);   
     if (r2 > size) r2 = size;
@@ -249,11 +328,11 @@ function autoCorrelate(buf, sampleRate) {
 
     for (let offset = r1; offset < r2; offset++) {
         let correlation = 0;
-        // 성능 타협: 2칸씩 건너뛰며 계산 (모바일 최적화)
-        for (let i = 0; i < size - offset; i+=2) {
+        // 정밀도 최우선 (생략 없이 계산)
+        for (let i = 0; i < size - offset; i++) {
             correlation += Math.abs(buf[i] - buf[i + offset]);
         }
-        correlation = 1 - (correlation / (size/2));
+        correlation = 1 - (correlation / size);
 
         if (correlation > bestCorrelation) {
             bestCorrelation = correlation;
@@ -261,8 +340,28 @@ function autoCorrelate(buf, sampleRate) {
         }
     }
 
-    if (bestCorrelation > 0.95) return sampleRate / bestOffset;
+    // 상관관계 96% 이상 (아주 명확한 소리만 인정)
+    if (bestCorrelation > 0.96) return sampleRate / bestOffset;
     return -1;
+}
+
+function updateStableBuffer(pitch) {
+    // 옥타브 튐 방지
+    if (stableBuffer.length > 0) {
+        const last = stableBuffer[stableBuffer.length - 1];
+        if (Math.abs(last - pitch) > 5) stableBuffer.length = 0;
+    }
+    stableBuffer.push(pitch);
+    if (stableBuffer.length > STABILITY_THRESHOLD) stableBuffer.shift();
+}
+
+function handleSilence() {
+    silenceTimer++;
+    if (silenceTimer > 20) { 
+        targetCents = 0;
+        stableBuffer.length = 0;
+        if (silenceTimer > 80) resetUI(true);
+    }
 }
 
 function updateTuner(frequency) {
@@ -272,13 +371,10 @@ function updateTuner(frequency) {
     const octave = Math.floor(noteRound / 12) - 1;
     let cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
 
-    // [핵심] 자석(Magnet) 효과 - 오차 ±4센트 이내면 0으로 고정
-    const isPerfect = Math.abs(cents) <= 4;
+    const isPerfect = Math.abs(cents) <= 3;
 
     if (isPerfect) {
-        cents = 0; // 강제 0 처리 (바늘 떨림 방지)
-        
-        // 락이 안 걸려있거나 다른 노트면 락 걸기
+        cents = 0; // 자석 효과
         if (!isNoteLocked || lockedNote !== noteName) {
             isNoteLocked = true;
             lockedNote = noteName;
@@ -290,11 +386,9 @@ function updateTuner(frequency) {
             }
         }
     } else if (Math.abs(cents) > 8) { 
-        // 오차가 8센트 이상 벌어지면 락 해제 (다시 움직임)
         isNoteLocked = false;
         lockedNote = "";
     } else if (isNoteLocked) {
-        // 락 걸린 상태에서 4~8센트 사이 미세한 떨림은 무시하고 0 유지
         cents = 0; 
     }
 
@@ -342,16 +436,11 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [스마트 스무딩] 물리 엔진
 function updateVisualizer() {
-    // 락 걸렸을 때는 자석처럼 매우 강하게(0.4) 붙고, 아닐 때는 부드럽게(0.15) 이동
     const factor = isNoteLocked ? 0.4 : 0.15;
-    
     displayCents += (targetCents - displayCents) * factor;
 
     let percentage = 50 + displayCents;
-    
-    // 바늘 범위 제한 (0% ~ 100%)
     if (percentage < 0) percentage = 0; 
     if (percentage > 100) percentage = 100;
     
