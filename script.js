@@ -1,10 +1,10 @@
-// --- 1. 악기 데이터 (주파수 범위 엄격 제한) ---
+// --- 1. 악기 데이터 (배음 방지를 위한 정밀 범위 설정) ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "6-String", range: [65, 1200], strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
+    guitar: { name: "GUITAR", icon: "🎸", detail: "6-String", range: [60, 900], strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
     bass: { name: "BASS", icon: "🎸", detail: "4-String", range: [30, 400], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
-    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", range: [20, 4000], isChromatic: true, strings: [], columns: 1 },
+    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
     ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1000], strings: [ { note: "G", octave: 4, freq: 392.00, num: 4 }, { note: "C", octave: 4, freq: 261.63, num: 3 }, { note: "E", octave: 4, freq: 329.63, num: 2 }, { note: "A", octave: 4, freq: 440.00, num: 1 } ], columns: 2 },
-    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1500], strings: [ { note: "G", octave: 3, freq: 196.00, num: 4 }, { note: "D", octave: 4, freq: 293.66, num: 3 }, { note: "A", octave: 4, freq: 440.00, num: 2 }, { note: "E", octave: 5, freq: 659.25, num: 1 } ], columns: 2 },
+    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1200], strings: [ { note: "G", octave: 3, freq: 196.00, num: 4 }, { note: "D", octave: 4, freq: 293.66, num: 3 }, { note: "A", octave: 4, freq: 440.00, num: 2 }, { note: "E", octave: 5, freq: 659.25, num: 1 } ], columns: 2 },
     cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 600], strings: [ { note: "C", octave: 2, freq: 65.41, num: 4 }, { note: "G", octave: 2, freq: 98.00, num: 3 }, { note: "D", octave: 3, freq: 146.83, num: 2 }, { note: "A", octave: 3, freq: 220.00, num: 1 } ], columns: 2 },
     doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 300], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
     flute: { name: "FLUTE", icon: "🎼", detail: "Standard", range: [200, 2000], strings: [ { note: "A", octave: 4, freq: 440.00, num: "A" }, { note: "A#", octave: 4, freq: 466.16, num: "Bb" } ], columns: 2 },
@@ -22,10 +22,9 @@ class RollingAverage {
         this.buffer = [];
     }
     add(value) {
-        // 급격한 변화(튀는 값) 필터링
         if (this.buffer.length > 0) {
             const last = this.buffer[this.buffer.length - 1];
-            // 이전 값과 100센트 이상 차이나면 일시적인 오류로 간주하고 무시하거나 완충
+            // 튀는 값(100센트 이상 급격한 변화)은 일시적으로 무시 (필터링)
             if (Math.abs(last - value) > 100) return; 
         }
         this.buffer.push(value);
@@ -50,33 +49,30 @@ let inputSource = null;
 let biquadFilter = null; 
 let compressor = null;   
 
-const BUF_SIZE = 4096; // 버퍼 사이즈 4096 (저음 인식률 확보)
+const BUF_SIZE = 4096; // 버퍼 사이즈 4096 (저음 정확도 향상)
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-// [보정] 이동 평균 필터 (12개 샘플)
+// [보정] 이동 평균 필터 (12개)
 const smoother = new RollingAverage(12);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
-let potentialNote = "";          
 let noteStabilityCounter = 0;    
 
-// [필수 기능] 어택 과도응답 무시: 소리가 나고 처음 몇 프레임은 무시해야 정확함
-const TRANSIENT_SKIP_FRAMES = 3; 
-
-// [필수 기능] 노트 고정 임계값
-const NOTE_CHANGE_THRESHOLD = 5; 
+// [히든 기술 1] 줄 고정 관성 (String Hysteresis)
+// 한번 감지된 줄은 다른 줄로 바뀔 때까지 '가산점'을 주어 쉽게 바뀌지 않게 함
+let lastDetectedStringIndex = -1; // 감지된 줄의 인덱스
 
 // 락킹(고정) 설정
 let isNoteLocked = false;
 let lockedNote = "";
 let lockDuration = 0; 
 
-// [사용자 편의성]
-const LOCK_REQUIRED_FRAMES = 8;  
-const LOCK_TOLERANCE_CENTS = 10; // ±10센트면 OK
-const UNLOCK_THRESHOLD_CENTS = 30; 
+// [사용자 편의성] 
+const LOCK_REQUIRED_FRAMES = 8;  // 고정까지 필요한 프레임 수
+const LOCK_TOLERANCE_CENTS = 10; // ±10센트면 OK (관대함)
+const UNLOCK_THRESHOLD_CENTS = 30; // 30센트 벗어나야 풀림
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -271,6 +267,8 @@ async function startTuner() {
 
         isRunning = true;
         smoother.reset();
+        lastDetectedStringIndex = -1; // 초기화
+        
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
         guideMsg.textContent = "PLAY A STRING...";
@@ -298,6 +296,7 @@ function resetUI(keepTuned = false) {
     displayCents = 0; targetCents = 0;
     currentDisplayedNote = "--"; 
     isNoteLocked = false; lockedNote = ""; lockDuration = 0;
+    lastDetectedStringIndex = -1;
     smoother.reset();
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
@@ -316,17 +315,16 @@ function processAudio() {
     if (!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
-    // 볼륨 체크 (RMS)
+    // RMS(볼륨) 체크 - 소음 게이트
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [필수] 소음 차단
     if (rms < 0.015) { 
         if (!isNoteLocked) {
-             if(noteStabilityCounter > 0) noteStabilityCounter--;
-             else if (Math.abs(targetCents) > 1) {
-                 targetCents *= 0.9;
+             // 소리가 작아지면 바늘을 천천히 중앙으로
+             if (Math.abs(targetCents) > 1) {
+                 targetCents *= 0.92; 
              }
         }
         requestAnimationFrame(processAudio);
@@ -338,7 +336,7 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
-// [기술] 개선된 YIN 알고리즘 (옥타브 오류 보정 포함)
+// [히든 기술 2] 강화된 YIN 알고리즘
 function yinPitchDetection(buffer, sampleRate) {
     const threshold = 0.15;
     const bufferSize = buffer.length;
@@ -381,22 +379,12 @@ function yinPitchDetection(buffer, sampleRate) {
         pitchInHz = sampleRate / tauEstimate;
     }
 
-    // [필수] 범위 체크
     const range = instruments[currentInstrument].range || [25, 2000];
     if (pitchInHz < range[0] || pitchInHz > range[1]) return -1;
-
-    // [필수] 옥타브 오류(Octave Error) 보정
-    // 감지된 피치가 기본음이 아니라 2배음(한 옥타브 위)일 확률이 높으므로
-    // 절반 주파수(0.5 * pitch) 근처에도 에너지가 있는지 확인
-    // (이 로직은 YIN 버퍼를 다시 확인하는 방식으로 단순화하여 적용)
-    
-    // 만약 감지된 피치가 예상보다 너무 높다면(배음일 가능성),
-    // 튜너 로직(findClosestString)에서 강제로 줄에 맞게 보정하도록 처리합니다.
-
     return pitchInHz;
 }
 
-// [핵심] 지능형 줄 감지 로직 (Nearest String Logic + Octave Correction)
+// [히든 기술 1] 지능형 줄 감지 + 관성(Hysteresis)
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -406,37 +394,51 @@ function findClosestString(frequency) {
         const noteName = noteStrings[noteRound % 12];
         const octave = Math.floor(noteRound / 12) - 1;
         const perfectFreq = 440 * Math.pow(2, (noteRound - 69) / 12);
-        return { note: noteName, octave: octave, targetFreq: perfectFreq };
+        return { note: noteName, octave: octave, targetFreq: perfectFreq, index: -1 };
     }
 
     let minDiff = Infinity;
     let closestStr = null;
+    let closestIndex = -1;
 
-    instData.strings.forEach(str => {
-        // [배음 보정] 입력 주파수가 줄의 주파수(f)일 수도 있고, 2배수(2f), 3배수(3f)일 수도 있음
-        // 입력 주파수를 줄의 주파수로 나눴을 때 정수에 가까우면 해당 줄일 확률이 높음
-        
+    instData.strings.forEach((str, index) => {
+        // [관성 로직] 현재 감지된 줄이라면 거리에 가중치(0.7배)를 주어
+        // 웬만하면 다른 줄로 튀지 않게 함
+        let weight = 1.0;
+        if (lastDetectedStringIndex === index) {
+            weight = 0.7; // 현재 줄은 30% 더 가깝게 인식 (우대)
+        }
+
+        // 기본 거리 계산
         let diff = Math.abs(frequency - str.freq);
         
-        // 2배음 체크 (예: 164Hz가 들어왔는데 6번줄 82Hz인지 확인)
-        const diff2 = Math.abs(frequency - (str.freq * 2));
-        
-        // 만약 2배음과의 거리가 매우 가깝다면(10Hz 이내), 이것은 6번줄의 배음일 가능성이 큼
-        // -> 거리를 0으로 간주해서 해당 줄을 선택하게 유도
-        if (diff2 < 20) {
-            diff = diff2 / 4; // 가중치 줘서 우선 선택
+        // [배음 방지] 2배음(한 옥타브 위) 체크
+        // 입력된 주파수가 목표 줄의 2배수와 비슷하다면? -> 해당 줄의 배음일 확률 높음
+        // 예: 6번줄(82Hz)을 쳤는데 164Hz가 감지됨 -> 164Hz인 줄보다 82Hz인 줄을 우선시
+        const diffHarmonic = Math.abs(frequency - (str.freq * 2));
+        if (diffHarmonic < 15) { // 배음과 15Hz 이내 차이라면
+             diff = diffHarmonic / 5; // 배음이면 강력하게 해당 줄로 끌어당김
         }
+
+        diff = diff * weight; // 가중치 적용
 
         if (diff < minDiff) {
             minDiff = diff;
             closestStr = str;
+            closestIndex = index;
         }
     });
+
+    // 최종 선택된 줄 저장 (다음 프레임의 관성을 위해)
+    if (closestIndex !== -1) {
+        lastDetectedStringIndex = closestIndex;
+    }
 
     return { 
         note: closestStr.note, 
         octave: closestStr.octave, 
-        targetFreq: closestStr.freq 
+        targetFreq: closestStr.freq,
+        index: closestIndex
     };
 }
 
@@ -446,55 +448,34 @@ function updateTuner(frequency) {
     // Cents 계산
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
-    // [보정] 배음(옥타브 위)이 잡혔을 경우 Cents가 +1200이 됨. 이를 0으로 보정
+    // 배음 보정 (±1200은 같은 음)
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
 
-    const detectedNoteKey = match.note + match.octave;
-    const currentNoteKey = currentDisplayedNote + currentDisplayedOctave;
-
-    // [필수] 어택 과도응답 무시 (노트 변경 초반 무시)
-    if (currentDisplayedNote === "--" || detectedNoteKey === currentNoteKey) {
-        if(noteStabilityCounter < 20) noteStabilityCounter++;
-        
-        // 안정화된 후에만 값 업데이트
-        if (noteStabilityCounter > TRANSIENT_SKIP_FRAMES) {
-            processCentsAndLocking(match.note, match.octave, rawCents, frequency);
-        }
-    } else {
-        // 노트가 바뀜
-        if (potentialNote === detectedNoteKey) {
-            noteStabilityCounter++;
-        } else {
-            potentialNote = detectedNoteKey;
-            noteStabilityCounter = 0; 
-        }
-
-        if (noteStabilityCounter > NOTE_CHANGE_THRESHOLD) {
-            currentDisplayedNote = match.note;
-            currentDisplayedOctave = match.octave;
-            isNoteLocked = false; lockDuration = 0; 
-            smoother.reset(); 
-            // 바로 업데이트 하지 않고 다음 프레임부터
-        }
-    }
+    // 즉시 업데이트 (딜레이 제거)
+    currentDisplayedNote = match.note;
+    currentDisplayedOctave = match.octave;
+    processCentsAndLocking(match.note, match.octave, rawCents, frequency);
 }
 
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
+    // 이동 평균 필터로 떨림만 부드럽게 잡음
     smoother.add(rawCents);
     const smoothCents = smoother.getAverage();
 
     if (isNoteLocked) {
+        // 락킹 해제: ±30센트 이상 튀면 해제
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            targetCents = 0; 
+            targetCents = 0; // 락킹 중엔 중앙 고정
             guideMsg.textContent = "PERFECT";
         }
     } else {
         targetCents = smoothCents;
+        // 락킹 진입: ±10센트 이내면 카운트
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
@@ -561,7 +542,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
-    const factor = isNoteLocked ? 0.2 : 0.15; 
+    const factor = isNoteLocked ? 0.3 : 0.2; 
     displayCents += (targetCents - displayCents) * factor;
 
     let percentage = 50 + displayCents;
