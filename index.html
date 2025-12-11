@@ -9,15 +9,6 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="iap-overlay" class="iap-overlay hidden">
-        <div class="iap-arrow">☝️</div>
-        <div class="iap-text">
-            <p><strong>마이크 권한 사용을 위해</strong></p>
-            <p>우측 상단 메뉴 <span class="icon">⋮</span> 또는 <span class="icon">⋯</span> 누르고</p>
-            <p class="highlight">'브라우저로 열기'를 선택하세요.</p>
-        </div>
-    </div>
-
     <div class="bg-fx"></div>
 
     <div class="container">
@@ -58,15 +49,19 @@
 
         <main>
             <div class="tuner-centerpiece">
+                <div class="mode-badge" id="mode-badge">AUTO MODE</div>
                 <div class="guide-message" id="guide-msg">READY TO TUNE</div>
+                
                 <div class="visualizer-ring">
                     <div class="ring-track"></div>
                     <div class="tuning-indicator" id="tuning-indicator"></div>
+                    
                     <div class="note-content">
                         <span id="note-name">--</span>
                         <span id="octave" class="octave"></span>
                     </div>
                 </div>
+
                 <div class="frequency-data">
                     <span id="frequency">0.0 Hz</span>
                     <span id="cents" class="badge hidden">0</span>
@@ -74,7 +69,10 @@
             </div>
 
             <div class="string-control-panel">
-                 <p class="section-label">// MANUAL CHECK</p>
+                 <div class="panel-header">
+                     <p class="section-label">// MANUAL CHECK</p>
+                     <button id="reset-mode-btn" class="hidden">RESET TO AUTO</button>
+                 </div>
                 <div class="string-selector" id="string-container"></div>
             </div>
         </main>
@@ -82,7 +80,6 @@
         <footer>
             <button id="start-btn">
                 <span class="btn-text">ACTIVATE MIC</span>
-                <span class="btn-glow"></span>
             </button>
         </footer>
     </div>
