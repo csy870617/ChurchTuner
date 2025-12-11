@@ -32,7 +32,7 @@ body {
     z-index: -1; pointer-events: none;
 }
 
-/* [수정됨] 전체 화면 컨테이너 */
+/* 전체 화면 컨테이너 */
 .container {
     width: 100%;
     height: 100%;
@@ -150,10 +150,6 @@ h1 { font-size: 0.9rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
     background: rgba(0, 255, 157, 0.2);
     box-shadow: 0 0 25px var(--accent-green);
     transform: scale(1.05);
-}
-.string-btn.manual-target {
-    border-color: var(--accent-yellow); color: #fff;
-    background: rgba(255, 217, 0, 0.1);
 }
 
 #start-btn {
