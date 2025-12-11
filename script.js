@@ -1,9 +1,5 @@
-// --- 1. 전역 설정 (표준 피치) ---
-const A4_FREQ = 440; // 교회 표준 (피아노와 동일)
-
-// --- 2. 악기 데이터 (440Hz 기준 정밀 주파수) ---
+// --- 1. 악기 데이터 (표준 440Hz 기준) ---
 const instruments = {
-    // [현악기]
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 900], strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -12,69 +8,58 @@ const instruments = {
         { note: "B", octave: 3, freq: 246.94, num: 2 }, 
         { note: "E", octave: 4, freq: 329.63, num: 1 } 
     ], columns: 3 },
-    
     bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
         { note: "G", octave: 2, freq: 98.00, num: 1 } 
     ], columns: 2 },
-
-    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal Mode", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
-
-    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G (GCEA)", range: [200, 1000], strings: [ 
+    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
+    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1000], strings: [ 
         { note: "G", octave: 4, freq: 392.00, num: 4 }, 
         { note: "C", octave: 4, freq: 261.63, num: 3 }, 
         { note: "E", octave: 4, freq: 329.63, num: 2 }, 
         { note: "A", octave: 4, freq: 440.00, num: 1 } 
     ], columns: 2 },
-
-    violin: { name: "VIOLIN", icon: "🎻", detail: "GDAE", range: [180, 1200], strings: [ 
+    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1200], strings: [ 
         { note: "G", octave: 3, freq: 196.00, num: 4 }, 
         { note: "D", octave: 4, freq: 293.66, num: 3 }, 
         { note: "A", octave: 4, freq: 440.00, num: 2 }, 
         { note: "E", octave: 5, freq: 659.25, num: 1 } 
     ], columns: 2 },
-    
-    cello: { name: "CELLO", icon: "🎻", detail: "CGDA", range: [60, 600], strings: [ 
+    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 600], strings: [ 
         { note: "C", octave: 2, freq: 65.41, num: 4 }, 
         { note: "G", octave: 2, freq: 98.00, num: 3 }, 
         { note: "D", octave: 3, freq: 146.83, num: 2 }, 
         { note: "A", octave: 3, freq: 220.00, num: 1 } 
     ], columns: 2 },
-
-    doublebass: { name: "D.BASS", icon: "🎻", detail: "EADG", range: [30, 300], strings: [ 
+    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 300], strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
         { note: "G", octave: 2, freq: 98.00, num: 1 } 
     ], columns: 2 },
-
-    // [이조 악기: 실제 소리(note)와 연주자가 보는 악보(num)가 다름]
-    flute: { name: "FLUTE", icon: "🎼", detail: "C Instrument", range: [200, 2000], strings: [ 
+    flute: { name: "FLUTE", icon: "🎼", detail: "C Inst.", range: [200, 2000], strings: [ 
         { note: "A", octave: 4, freq: 440.00, num: "A" }, 
         { note: "A#", octave: 4, freq: 466.16, num: "Bb" } 
     ], columns: 2 },
-    
-    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Instrument", range: [100, 1500], strings: [ 
-        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, // 실제 A#3 -> 악보 C4
-        { note: "F", octave: 4, freq: 349.23, num: "G" }       // 실제 F4 -> 악보 G4
+    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Inst.", range: [100, 1500], strings: [ 
+        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, 
+        { note: "F", octave: 4, freq: 349.23, num: "G" } 
     ], columns: 2 },
-    
-    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Instrument", range: [100, 1200], strings: [ 
-        { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, // 실제 Eb3 -> 악보 C4
-        { note: "A#", octave: 3, freq: 466.16, num: "G" }      // 실제 Bb3 -> 악보 G4
+    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Inst.", range: [100, 1200], strings: [ 
+        { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, 
+        { note: "A#", octave: 3, freq: 466.16, num: "G" } 
     ], columns: 2 },
-    
-    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Instrument", range: [150, 1200], strings: [ 
-        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, // 실제 Bb3 -> 악보 C4
-        { note: "F", octave: 4, freq: 349.23, num: "G" }       // 실제 F4 -> 악보 G4
+    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", range: [150, 1200], strings: [ 
+        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, 
+        { note: "F", octave: 4, freq: 349.23, num: "G" } 
     ], columns: 2 }
 };
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 3. 유틸리티 (이동 평균 - 바늘 떨림 방지) ---
+// --- 2. 안정화 유틸리티 (부드러운 바늘) ---
 class RollingAverage {
     constructor(size) {
         this.size = size;
@@ -83,7 +68,8 @@ class RollingAverage {
     add(value) {
         if (this.buffer.length > 0) {
             const last = this.buffer[this.buffer.length - 1];
-            if (Math.abs(last - value) > 100) return; // 튀는 값 필터링
+            // 튀는 값 필터링 (순간적인 노이즈)
+            if (Math.abs(last - value) > 100) return; 
         }
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
@@ -96,7 +82,7 @@ class RollingAverage {
     reset() { this.buffer = []; }
 }
 
-// --- 4. 전역 변수 ---
+// --- 3. 전역 변수 ---
 let currentInstrument = 'guitar';
 let currentDynamicInst = null; 
 let audioContext = null; 
@@ -107,27 +93,23 @@ let inputSource = null;
 let biquadFilter = null; 
 let compressor = null;   
 
-const BUF_SIZE = 4096; 
+const BUF_SIZE = 4096; // 고해상도 분석
 const buf = new Float32Array(BUF_SIZE);
-const tunedStrings = new Set(); 
+const tunedStrings = new Set(); // [중요] 완료된 줄 저장소 (초기화 전까지 유지)
+
 const smoother = new RollingAverage(12);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
-let potentialNote = "";          
 let noteStabilityCounter = 0;    
-const NOTE_CHANGE_THRESHOLD = 3; 
+let lastDetectedStringIndex = -1; // 줄 고정 관성용
 
-// 지능형 줄 감지 변수
-let lastDetectedStringIndex = -1; 
-
-// 락킹(고정) 변수
+// 락킹(완료) 설정
 let isNoteLocked = false;
-let lockedNote = "";
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 8;  
-const LOCK_TOLERANCE_CENTS = 10; 
-const UNLOCK_THRESHOLD_CENTS = 30; 
+const LOCK_REQUIRED_FRAMES = 6;  // 빠르게 잠김 (0.2초 정도 유지시)
+const LOCK_TOLERANCE_CENTS = 8;  // ±8센트면 OK
+const UNLOCK_THRESHOLD_CENTS = 25; 
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -152,7 +134,7 @@ const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 const dynDetail = document.getElementById('dyn-detail');
 
-// --- 5. 초기화 및 함수 ---
+// --- 4. 초기화 ---
 function init() {
     loadSavedSettings();
     instCards.forEach(card => {
@@ -205,6 +187,10 @@ function activateInstrument(instKey, cardElement) {
     if (instKey !== 'guitar' && instKey !== 'bass') {
         localStorage.setItem('churchTuner_dynamic', instKey);
     }
+    
+    // 악기가 바뀌면 튜닝 기록 초기화 (새로운 악기니까)
+    tunedStrings.clear(); 
+    
     if(isRunning) applyInstrumentFilter();
     resetUI(false);
     renderStringButtons(currentInstrument);
@@ -255,25 +241,34 @@ function renderStringButtons(instType) {
     });
 }
 
+// [핵심 수정] 하이라이트 로직: 완료된 줄은 무조건 불을 켜둠
 function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
+        
+        // 일단 모든 임시 상태 제거
         btn.classList.remove('detected', 'locked');
 
+        // [중요] tunedStrings Set에 있으면 무조건 'tuned' 클래스 유지
         if (tunedStrings.has(btnKey)) {
             btn.classList.add('tuned');
         } else {
+            // 없으면 tuned 클래스 제거
             btn.classList.remove('tuned');
         }
 
+        // 현재 감지된 줄에 대한 처리
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
             if (isLocked) {
+                // 지금 막 완료됨 -> tuned 추가
                 btn.classList.add('tuned');
-                btn.classList.remove('detected', 'locked');
             } else {
+                // 아직 맞추는 중임
+                // 이미 완료된 줄이라도 다시 치면 '감지 중(detected)' 표시를 해줄 수 있음.
+                // 하지만 'tuned' 상태가 더 중요하므로, tuned가 없을 때만 detected 표시
                 if (!btn.classList.contains('tuned')) {
                     btn.classList.add('detected');
                 }
@@ -293,21 +288,32 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 6. 오디오 엔진 ---
+// --- 5. 오디오 처리 (강력한 신호 처리) ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
     try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
-        const constraints = { audio: { echoCancellation: true, autoGainControl: false, noiseSuppression: true } };
+        
+        // [핵심] 브라우저의 오디오 보정을 끄고 '날 것(Raw)'의 소리를 받음 -> 왜곡 방지
+        const constraints = { 
+            audio: { 
+                echoCancellation: false, 
+                autoGainControl: false, 
+                noiseSuppression: false 
+            } 
+        };
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
+        
+        // 컴프레서: 작은 소리는 키우고 큰 소리는 줄여서 일정하게 만듦
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50;
         compressor.ratio.value = 12;
 
+        // 필터: 잡음 제거
         biquadFilter = audioContext.createBiquadFilter();
         biquadFilter.type = "lowpass"; 
         
@@ -334,7 +340,6 @@ async function startTuner() {
 function applyInstrumentFilter() {
     if(!biquadFilter) return;
     const instData = instruments[currentInstrument];
-    // 최대 주파수 제한 (잡음 차단)
     const maxFreq = instData.range ? instData.range[1] * 2.5 : 2000; 
     biquadFilter.frequency.value = maxFreq;
 }
@@ -351,7 +356,7 @@ function stopTuner() {
 function resetUI(keepTuned = false) {
     displayCents = 0; targetCents = 0;
     currentDisplayedNote = "--"; 
-    isNoteLocked = false; lockedNote = ""; lockDuration = 0;
+    isNoteLocked = false; lockDuration = 0;
     lastDetectedStringIndex = -1;
     smoother.reset();
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
@@ -362,6 +367,7 @@ function resetUI(keepTuned = false) {
         b.classList.remove('detected', 'locked');
         if (keepTuned) {
             const key = b.dataset.note + b.dataset.octave;
+            // 여기서도 Set에 있는 건 건드리지 않음
             if (tunedStrings.has(key)) b.classList.add('tuned');
         } else { b.classList.remove('tuned'); }
     });
@@ -375,12 +381,11 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트
-    if (rms < 0.015) { 
+    // 소음 게이트: 0.01 미만이면 조용한 상태
+    if (rms < 0.01) { 
         if (!isNoteLocked) {
-             if(noteStabilityCounter > 0) noteStabilityCounter--;
-             else if (Math.abs(targetCents) > 1) {
-                 targetCents *= 0.92; 
+             if (Math.abs(targetCents) > 1) {
+                 targetCents *= 0.9; // 바늘 천천히 떨어짐
              }
         }
         requestAnimationFrame(processAudio);
@@ -392,6 +397,7 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
+// [YIN 알고리즘]
 function yinPitchDetection(buffer, sampleRate) {
     const threshold = 0.15;
     const bufferSize = buffer.length;
@@ -436,16 +442,16 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [핵심] 440Hz 기준 지능형 줄 감지 로직
+// [스마트 줄 감지]
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
     if (instData.isChromatic) {
-        const noteNum = 12 * (Math.log(frequency / A4_FREQ) / Math.log(2));
+        const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
         const noteRound = Math.round(noteNum) + 69;
         const noteName = noteStrings[noteRound % 12];
         const octave = Math.floor(noteRound / 12) - 1;
-        const perfectFreq = A4_FREQ * Math.pow(2, (noteRound - 69) / 12);
+        const perfectFreq = 440 * Math.pow(2, (noteRound - 69) / 12);
         return { note: noteName, octave: octave, targetFreq: perfectFreq, index: -1 };
     }
 
@@ -455,17 +461,17 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
-        // 현재 감지된 줄에 관성 부여 (쉽게 안바뀜)
+        // 현재 잡고 있는 줄에 30% 우선권 부여 (쉽게 안바뀜)
         if (lastDetectedStringIndex === index) {
             weight = 0.7; 
         }
 
         let diff = Math.abs(frequency - str.freq);
         
-        // 배음(옥타브 위) 인식 보정
+        // 2배음(옥타브 위) 인식 보정
         const diffHarmonic = Math.abs(frequency - (str.freq * 2));
         if (diffHarmonic < 15) { 
-             diff = diffHarmonic / 5; // 배음이면 강력하게 원음으로 끌어당김
+             diff = diffHarmonic / 5; // 배음이면 원음으로 매핑
         }
 
         diff = diff * weight;
@@ -492,7 +498,6 @@ function findClosestString(frequency) {
 function updateTuner(frequency) {
     const match = findClosestString(frequency);
     
-    // Cents 계산 (440Hz 기준)
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
     while (rawCents > 600) rawCents -= 1200;
@@ -500,6 +505,8 @@ function updateTuner(frequency) {
 
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
+    
+    // 즉시 반응 (카운터 제거)
     processCentsAndLocking(match.note, match.octave, rawCents, frequency);
 }
 
@@ -508,6 +515,7 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
     const smoothCents = smoother.getAverage();
 
     if (isNoteLocked) {
+        // 완료 상태: 많이 벗어나야(30센트) 풀림
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
@@ -518,13 +526,15 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
         }
     } else {
         targetCents = smoothCents;
+        // 완료 판정: 10센트 이내
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
-                lockedNote = noteName;
+                // [중요] 완료되는 순간 영구 기록
                 tunedStrings.add(noteName + octave);
                 highlightStringBtn(noteName, octave, true);
+                
                 playSuccessSound();
                 targetCents = 0; 
             }
