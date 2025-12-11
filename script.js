@@ -6,7 +6,7 @@ const instruments = {
 };
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 전역 변수 (메모리 재사용을 위해 최상위 선언) ---
+// --- 전역 변수 ---
 let currentInstrument = 'guitar';
 let targetFrequency = null;
 let audioContext = null; 
@@ -16,15 +16,15 @@ let source = null;
 let isRunning = false; 
 let rafId = null; 
 
-// [성능 최적화] 메모리 재사용을 위한 버퍼 전역 선언
+// [성능 및 노이즈 제어 변수]
 const FFT_SIZE = 2048; 
-const buffer = new Float32Array(FFT_SIZE); // 루프 밖에서 딱 한 번 생성
-const correlations = new Float32Array(FFT_SIZE); // 계산용 버퍼
-
-// [반응성 변수]
+const buffer = new Float32Array(FFT_SIZE); 
 let lastSuccessTime = 0;
+
+// 화면 갱신용 물리 엔진 변수
 let currentCents = 0; 
 let targetCents = 0;
+let silenceTimer = 0; // 조용할 때 UI 리셋용 타이머
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -55,7 +55,6 @@ function init() {
     resetModeBtn.addEventListener('click', resetTarget);
     startBtn.addEventListener('click', toggleTuner);
     
-    // UI 업데이트 루프 (오디오 분석과 별도로 60fps 유지)
     requestAnimationFrame(uiLoop);
 }
 
@@ -121,7 +120,7 @@ function playReferenceTone(freq) {
 
 function playSuccessSound() {
     const now = Date.now();
-    if (now - lastSuccessTime < 800) return; // 쿨타임 0.8초 (빠른 반응)
+    if (now - lastSuccessTime < 800) return; 
     if (!audioContext) return;
     
     const t = audioContext.currentTime;
@@ -139,7 +138,7 @@ function playSuccessSound() {
     lastSuccessTime = now;
 }
 
-// --- 오디오 엔진 (메모리 누수 방지 & 고속화) ---
+// --- 오디오 엔진 ---
 function toggleTuner() {
     if (isRunning) stopTuner();
     else startTuner();
@@ -150,14 +149,13 @@ async function startTuner() {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
-        // [중요] 모든 자동 보정 끄기 (Pure Audio)
+        // [중요] 노이즈 억제 옵션 끄기 (음악적 배음을 살리기 위함)
         const constraints = { 
             audio: { 
                 echoCancellation: false, 
                 autoGainControl: false, 
                 noiseSuppression: false, 
-                latency: 0,
-                channelCount: 1
+                latency: 0 
             } 
         };
 
@@ -165,22 +163,20 @@ async function startTuner() {
         
         analyser = audioContext.createAnalyser();
         analyser.fftSize = FFT_SIZE; 
-        analyser.smoothingTimeConstant = 0; // 스무딩 0 = 즉각 반응 (딜레이 제거)
+        analyser.smoothingTimeConstant = 0; // 즉각 반응
 
         source = audioContext.createMediaStreamSource(mediaStream);
-        
-        // [수정] 1번줄(High E) 인식을 위해 필터 제거. 원음 그대로 분석.
         source.connect(analyser);
 
         isRunning = true;
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
-        guideMsg.textContent = "LISTENING...";
+        guideMsg.textContent = "PLAY A STRING..."; // 초기 메시지 변경
         
         analyzeLoop();
     } catch (err) { 
         console.error(err); 
-        alert("마이크 권한 오류: 브라우저 설정에서 마이크를 허용해주세요."); 
+        alert("마이크 사용 권한이 필요합니다."); 
     }
 }
 
@@ -189,81 +185,103 @@ function stopTuner() {
     startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
     
-    // UI 리셋
-    noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
-    freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
-    targetCents = 0; currentCents = 0;
+    resetUI(); // UI 초기화
     
     document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('detected', 'locked'));
     guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
 
     if (rafId) cancelAnimationFrame(rafId);
-    
-    // 스트림 정리 (메모리 해제)
     if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
     if (source) source.disconnect();
 }
 
-// --- 고성능 피치 분석 (가비지 컬렉션 제거 버전) ---
+function resetUI() {
+    noteNameEl.classList.remove('active'); 
+    noteNameEl.textContent = "--"; 
+    octaveEl.textContent = "";
+    freqEl.textContent = "0.0 Hz"; 
+    centsEl.classList.add('hidden');
+    targetCents = 0; // 바늘 중앙으로
+    tuningIndicator.style.backgroundColor = "var(--accent-green)";
+    tuningIndicator.style.boxShadow = "none";
+}
+
+// --- 분석 루프 ---
 function analyzeLoop() {
     if (!isRunning) return;
 
-    // 전역 버퍼 재사용 (메모리 할당 X)
     analyser.getFloatTimeDomainData(buffer);
-    
     const freq = performAutocorrelation(buffer, audioContext.sampleRate);
 
-    // 기타 음역대: 40Hz (Bass Low E) ~ 1200Hz (High fret)
-    if (freq > 40 && freq < 1200) {
+    // [핵심] 1. 소리가 감지되었는가?
+    if (freq !== -1 && freq > 40 && freq < 1500) {
+        
+        // 타겟 모드 필터
         if (targetFrequency) {
-            // 수동 모드: 범위 체크 (±30%)
             const ratio = freq / targetFrequency;
-            if (ratio > 0.7 && ratio < 1.3) updateTunerState(freq);
-        } else {
-            updateTunerState(freq);
+            // 타겟 주파수의 ±30% 범위가 아니면 무시 (잡음 취급)
+            if (ratio < 0.7 || ratio > 1.3) {
+                handleSilence();
+                rafId = requestAnimationFrame(analyzeLoop);
+                return;
+            }
         }
+
+        silenceTimer = 0; // 소리가 있으므로 타이머 리셋
+        updateTunerState(freq);
+
+    } else {
+        // [핵심] 2. 소리가 없거나(잡음) 너무 작으면 침묵 처리
+        handleSilence();
     }
 
     rafId = requestAnimationFrame(analyzeLoop);
 }
 
-// 최적화된 Autocorrelation 알고리즘
+function handleSilence() {
+    silenceTimer++;
+    // 약 20프레임(0.3초) 이상 조용하면 UI 리셋 (바늘 튀는 것 방지)
+    if (silenceTimer > 20) {
+        targetCents = 0; // 바늘 중앙 복귀
+        // 텍스트는 바로 지우지 않고 유지하다가 아주 오래되면 지움 (선택사항)
+    }
+}
+
+// 최적화된 Autocorrelation + Noise Gate
 function performAutocorrelation(buf, sampleRate) {
     let size = buf.length;
     let rms = 0;
 
-    // RMS 계산 (볼륨 체크)
+    // 1. RMS(볼륨) 계산
     for (let i = 0; i < size; i++) {
         const val = buf[i];
         rms += val * val;
     }
     rms = Math.sqrt(rms / size);
     
-    // [수정] 1번줄은 에너지가 약하므로 RMS 임계값을 매우 낮춤 (0.002)
-    if (rms < 0.002) return -1;
+    // [초강력 노이즈 게이트]
+    // 볼륨이 0.015 미만이면 아예 잡음으로 간주하고 -1 반환 (이 수치로 민감도 조절)
+    // 너무 낮으면 잡음 잡고, 너무 높으면 1번줄 못 잡음. 0.015가 적절.
+    if (rms < 0.015) return -1;
 
-    // 검색 범위 제한 (불필요한 연산 제거)
-    // 40Hz ~ 1200Hz 사이의 주기만 검사
-    let r1 = Math.floor(sampleRate / 1200); 
-    let r2 = Math.floor(sampleRate / 40);
+    // 2. 검색 범위 설정
+    let r1 = Math.floor(sampleRate / 1500); // Max Frequency
+    let r2 = Math.floor(sampleRate / 40);   // Min Frequency
     if (r2 > size) r2 = size;
 
-    // 상관관계 계산 (전역 버퍼 사용)
-    // 전체를 다 돌지 않고, 기타 음역대 주기만 검사하여 속도 2배 향상
+    // 3. 상관관계 계산 (Difference Method)
     let bestOffset = -1;
     let bestCorrelation = 0;
 
     for (let offset = r1; offset < r2; offset++) {
         let correlation = 0;
         
-        // 샘플링 최적화: 모든 샘플을 다 더하지 않고 건너뛰며 계산 (Downsampling effect for speed)
-        // 정밀도는 약간 떨어지지만 반응속도는 빨라짐. 여기선 정확도를 위해 1로 유지하거나 2로 설정 가능
+        // 샘플링 간격(skip)을 1로 하여 정밀도 최대화
         for (let i = 0; i < size - offset; i++) {
-            correlation += Math.abs(buf[i] - buf[i + offset]); // 차이값 누적 (Difference method가 곱하기보다 빠름)
+            correlation += Math.abs(buf[i] - buf[i + offset]);
         }
         
-        // 차이값이 작을수록(0에 가까울수록) 상관관계가 높음 (Autocorrelation의 역)
-        // 정규화: (1 - 차이값/최대값) 형태로 변환하여 Peak 찾기
+        // 정규화 (1에 가까울수록 일치)
         correlation = 1 - (correlation / size); 
 
         if (correlation > bestCorrelation) {
@@ -272,8 +290,9 @@ function performAutocorrelation(buf, sampleRate) {
         }
     }
 
-    // 상관관계가 너무 낮으면(잡음이면) 무시
-    if (bestCorrelation < 0.9) return -1;
+    // [중요] 상관관계(음의 명확도)가 92% 미만이면 잡음 취급
+    // 이 수치를 높일수록 튜너가 깐깐해짐 (잡음 무시)
+    if (bestCorrelation < 0.92) return -1;
 
     return sampleRate / bestOffset;
 }
@@ -285,10 +304,7 @@ function updateTunerState(frequency) {
     const octave = Math.floor(noteRound / 12) - 1;
     const cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
     
-    // UI 타겟 값 즉시 갱신 (딜레이 없음)
     targetCents = cents;
-    
-    // 텍스트는 바로바로 업데이트
     renderTextUI(noteName, octave, cents, frequency);
 }
 
@@ -306,12 +322,11 @@ function renderTextUI(note, octave, cents, frequency) {
     let isLocked = false;
     const style = getComputedStyle(document.body);
 
-    // 판정 범위: ±5센트 (사용자 친화적)
-    if (Math.abs(cents) <= 5) {
+    if (Math.abs(cents) <= 4) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
         isLocked = true;
-        playSuccessSound(); // 즉시 소리 재생
+        playSuccessSound(); 
     } else if (cents < 0) {
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW (TIGHTEN)";
@@ -334,10 +349,11 @@ function renderTextUI(note, octave, cents, frequency) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// --- UI 루프 (물리 엔진: 빠릿하게) ---
+// --- UI 루프 (물리 엔진) ---
 function uiLoop() {
-    // Lerp 계수 0.8: 목표치까지 80%씩 접근 (거의 즉시 반응하지만 아주 약간의 부드러움)
-    currentCents += (targetCents - currentCents) * 0.8;
+    // 바늘이 목표지점으로 매우 빠르게 이동 (0.4 -> 0.6)
+    // 값이 높을수록 반응이 빠름 (최대 1.0)
+    currentCents += (targetCents - currentCents) * 0.6;
 
     let percentage = 50 + currentCents;
     if (percentage < 0) percentage = 0; 
