@@ -1,4 +1,4 @@
-// --- 악기 데이터 ---
+// --- 악기 데이터 (Standard Tunings) ---
 const instruments = {
     guitar: { name: "GUITAR", strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
     bass: { name: "BASS", strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
@@ -6,14 +6,20 @@ const instruments = {
 };
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
+// --- 전역 변수 ---
 let currentInstrument = 'guitar';
-let targetFrequency = null;
-let audioContext = null; let analyser = null; let source = null;
-let isRunning = false; let rafId = null; let oscillator = null;
+let targetFrequency = null; // 수동 모드 타겟
+let audioContext = null; 
+let analyser = null; 
+let source = null;
+let isRunning = false; 
+let rafId = null; 
+let oscillator = null;
 
-// [고급 튜닝용 변수]
+// 성능 향상 변수
 const pitchBuffer = [];
 const BUFFER_SIZE = 8; 
+let lastSuccessTime = 0; // 알림음 중복 방지
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -45,7 +51,6 @@ function init() {
 
     resetModeBtn.addEventListener('click', resetTarget);
     
-    // 버튼 클릭 이벤트 연결
     startBtn.addEventListener('click', () => {
         if (isRunning) stopTuner();
         else startTuner();
@@ -69,9 +74,14 @@ function renderStringButtons(instType) {
     data.strings.forEach(str => {
         const btn = document.createElement('button');
         btn.className = 'string-btn';
+        // 데이터 속성 저장 (자동 감지 시 비교용)
+        btn.dataset.freq = str.freq;
+        btn.dataset.note = str.note;
+        btn.dataset.octave = str.octave;
+        
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
         btn.addEventListener('click', () => {
-            playTone(str.freq);
+            playReferenceTone(str.freq);
             setTargetMode(str.freq, str.note, str.octave, btn);
         });
         stringContainer.appendChild(btn);
@@ -80,7 +90,12 @@ function renderStringButtons(instType) {
 
 function setTargetMode(freq, note, octave, btnElem) {
     targetFrequency = freq;
-    highlightStringBtn(btnElem);
+    // 모든 버튼 초기화 후 수동 타겟 표시
+    document.querySelectorAll('.string-btn').forEach(b => {
+        b.classList.remove('detected', 'locked', 'manual-target');
+    });
+    btnElem.classList.add('manual-target');
+    
     modeBadge.textContent = `TARGET: ${note}${octave}`;
     modeBadge.classList.add('manual');
     resetModeBtn.classList.remove('hidden');
@@ -88,24 +103,62 @@ function setTargetMode(freq, note, octave, btnElem) {
     guideMsg.style.color = "var(--accent-yellow)";
 }
 
-function highlightStringBtn(targetBtn) {
-    document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('active-string'));
-    if(targetBtn) targetBtn.classList.add('active-string');
+// 자동 모드일 때 가장 가까운 줄 강조
+function highlightStringBtn(noteName, octave, isLocked) {
+    // 수동 모드면 무시
+    if (targetFrequency) return;
+
+    const btns = document.querySelectorAll('.string-btn');
+    btns.forEach(btn => {
+        btn.classList.remove('detected', 'locked'); // 기존 상태 제거
+        
+        // 현재 감지된 음과 일치하는 줄 찾기
+        if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
+            if (isLocked) {
+                btn.classList.add('locked'); // 정튜닝 (초록)
+            } else {
+                btn.classList.add('detected'); // 감지됨 (파랑)
+            }
+        }
+    });
 }
 
-function playTone(freq) {
-    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)(); // 재생용 컨텍스트
-    if (oscillator) { oscillator.stop(); oscillator.disconnect(); }
-    oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    oscillator.type = 'sawtooth'; oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
-    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.5);
-    oscillator.connect(gainNode); gainNode.connect(audioContext.destination);
-    oscillator.start(); oscillator.stop(audioContext.currentTime + 1.5);
+function playReferenceTone(freq) {
+    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    osc.type = 'sawtooth'; 
+    osc.frequency.setValueAtTime(freq, audioContext.currentTime);
+    gain.gain.setValueAtTime(0.1, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.0);
+    osc.connect(gain); gain.connect(audioContext.destination);
+    osc.start(); osc.stop(audioContext.currentTime + 1.0);
 }
 
-// --- 오디오 처리 엔진 ---
+// --- 정튜닝 성공 알림음 (Ding!) ---
+function playSuccessSound() {
+    const now = Date.now();
+    // 2초 쿨타임 (연속 재생 방지)
+    if (now - lastSuccessTime < 2000) return; 
+
+    if (!audioContext) return;
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    
+    osc.type = 'sine'; // 맑은 소리
+    osc.frequency.setValueAtTime(880, audioContext.currentTime); // High A
+    osc.frequency.exponentialRampToValueAtTime(440, audioContext.currentTime + 0.5);
+    
+    gain.gain.setValueAtTime(0.2, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.8);
+    
+    osc.connect(gain); gain.connect(audioContext.destination);
+    osc.start(); osc.stop(audioContext.currentTime + 0.8);
+    
+    lastSuccessTime = now;
+}
+
+// --- 오디오 프로세싱 (고급) ---
 async function startTuner() {
     try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -116,14 +169,13 @@ async function startTuner() {
         });
 
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = 8192; // 고해상도 유지
+        analyser.fftSize = 8192; // 고해상도
         analyser.smoothingTimeConstant = 0.8;
 
-        // 필터 체인 (HighPass 30Hz -> LowPass 1200Hz)
         const highPass = audioContext.createBiquadFilter();
-        highPass.type = "highpass"; highPass.frequency.value = 30;
+        highPass.type = "highpass"; highPass.frequency.value = 30; // 럼블 제거
         const lowPass = audioContext.createBiquadFilter();
-        lowPass.type = "lowpass"; lowPass.frequency.value = 1200;
+        lowPass.type = "lowpass"; lowPass.frequency.value = 1000; // 잡음 제거
 
         source = audioContext.createMediaStreamSource(stream);
         source.connect(highPass);
@@ -151,24 +203,35 @@ function stopTuner() {
     
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
-    
     tuningIndicator.style.left = "50%";
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
-    tuningIndicator.style.boxShadow = "0 0 20px var(--accent-green)";
-
     guideMsg.textContent = "READY TO TUNE";
     guideMsg.style.color = "var(--text-secondary)";
+
+    // 버튼 상태 초기화
+    document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('detected', 'locked'));
 
     if (rafId) cancelAnimationFrame(rafId);
     if (source) { source.disconnect(); source = null; }
 }
 
+// --- 윈도우 함수 (Hanning Window) 적용 ---
+// 신호의 양끝을 부드럽게 0으로 만들어 스펙트럼 누설(Spectral Leakage)을 줄임
+function applyHanningWindow(buffer) {
+    for (let i = 0; i < buffer.length; i++) {
+        buffer[i] = buffer[i] * (0.5 * (1 - Math.cos(2 * Math.PI * i / (buffer.length - 1))));
+    }
+}
+
 function autoCorrelate(buffer, sampleRate) {
+    // 1. 해닝 윈도우 적용 (정확도 상승 핵심)
+    applyHanningWindow(buffer);
+
     let SIZE = buffer.length;
     let rms = 0;
     for (let i = 0; i < SIZE; i++) { const val = buffer[i]; rms += val * val; }
     rms = Math.sqrt(rms / SIZE);
-    if (rms < 0.03) return -1; // 노이즈 게이트
+    if (rms < 0.008) return -1; // 민감도 조절
 
     let r1 = 0, r2 = SIZE - 1, thres = 0.2;
     for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
@@ -212,11 +275,8 @@ function updatePitch() {
 
     if (smoothedFreq > 30 && smoothedFreq < 1200) {
         if (targetFrequency) {
-            // 타겟 모드: ±25% 이내만 허용
             const ratio = smoothedFreq / targetFrequency;
-            if (ratio > 0.75 && ratio < 1.25) {
-                processValidPitch(smoothedFreq);
-            }
+            if (ratio > 0.75 && ratio < 1.25) processValidPitch(smoothedFreq);
         } else {
             processValidPitch(smoothedFreq);
         }
@@ -230,6 +290,7 @@ function processValidPitch(frequency) {
     const noteName = noteStrings[noteRound % 12];
     const octave = Math.floor(noteRound / 12) - 1;
     const cents = Math.floor(1200 * Math.log(frequency / (440 * Math.pow(2, (noteRound - 69) / 12))) / Math.log(2));
+    
     updateUI(noteName, octave, cents, frequency);
 }
 
@@ -244,11 +305,14 @@ function updateUI(note, octave, cents, frequency) {
 
     let colorVar = '--accent-green'; 
     let msg = "PERFECT";
+    let isLocked = false;
     const style = getComputedStyle(document.body);
 
-    if (Math.abs(cents) < 4) {
+    if (Math.abs(cents) < 3) { // 오차 범위 ±3센트 (매우 엄격)
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
+        isLocked = true;
+        playSuccessSound(); // 정튜닝 시 알림음 재생
     } else if (cents < 0) {
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW (TIGHTEN)";
@@ -260,13 +324,22 @@ function updateUI(note, octave, cents, frequency) {
     guideMsg.textContent = msg;
     guideMsg.style.color = colorVar;
 
+    // 하단 박스 하이라이트 (감지된 줄 표시)
+    highlightStringBtn(note, octave, isLocked);
+
     let percentage = 50 + cents;
     if (percentage < 0) percentage = 0; 
     if (percentage > 100) percentage = 100;
     
     tuningIndicator.style.left = `${percentage}%`;
     tuningIndicator.style.backgroundColor = colorVar;
-    tuningIndicator.style.boxShadow = `0 0 25px ${colorVar}`;
+    
+    // 정튜닝 시 빛나는 효과 극대화
+    if(isLocked) {
+        tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
+    } else {
+        tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
+    }
     
     noteNameEl.style.color = colorVar;
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;

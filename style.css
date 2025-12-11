@@ -122,9 +122,27 @@ h1 { font-size: 1rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
     background: var(--bg-card); border: 1px solid rgba(255, 255, 255, 0.05);
     color: var(--text-secondary); padding: 15px; border-radius: 12px; cursor: pointer;
     font-family: var(--font-heading); font-weight: 800; display: flex; flex-direction: column; align-items: center;
+    transition: all 0.2s;
 }
 .string-btn .str-num { font-family: var(--font-mono); font-size: 0.6rem; color: #555; margin-bottom: 4px; }
-.string-btn.active-string {
+
+/* 감지됨 (파란색) */
+.string-btn.detected {
+    border-color: var(--accent-blue); color: #fff;
+    background: linear-gradient(to bottom right, rgba(0, 225, 255, 0.1), var(--bg-card));
+    box-shadow: 0 0 10px rgba(0, 225, 255, 0.2);
+}
+
+/* 정튜닝 완료 (초록색) - 중요 */
+.string-btn.locked {
+    border-color: var(--accent-green); color: #fff;
+    background: linear-gradient(to bottom right, rgba(0, 255, 157, 0.2), var(--bg-card));
+    box-shadow: 0 0 20px var(--accent-green);
+    transform: scale(1.05);
+}
+
+/* 수동 모드 선택됨 (노란색) */
+.string-btn.manual-target {
     border-color: var(--accent-yellow); color: #fff;
     background: linear-gradient(to bottom right, rgba(255, 217, 0, 0.1), var(--bg-card));
     box-shadow: 0 0 15px rgba(255, 217, 0, 0.2);
