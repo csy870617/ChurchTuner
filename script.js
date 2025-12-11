@@ -15,10 +15,10 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 칼만 필터 (보정 강도 대폭 상향) ---
+// --- 2. 칼만 필터 (안정적인 움직임) ---
 class SimpleKalmanFilter {
     constructor(r = 1, q = 1, a = 1, b = 0, c = 1) {
-        this.R = r; // 값이 클수록 반응이 느려지고 부드러워짐
+        this.R = r; // 높을수록 반응이 둔감해짐 (노이즈 감소)
         this.Q = q; 
         this.A = a; this.B = b; this.C = c;
         this.cov = NaN; this.x = NaN; 
@@ -53,22 +53,23 @@ const BUF_SIZE = 2048;
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-// [수정] 필터 강도 상향: R값을 50 -> 150으로 올려 떨림을 잡음
-const kalman = new SimpleKalmanFilter(150, 5); 
+// [보정] 칼만 필터 강도 조정 (떨림 방지)
+const kalman = new SimpleKalmanFilter(120, 8); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let potentialNote = "";          
 let noteStabilityCounter = 0;    
-const NOTE_CHANGE_THRESHOLD = 8; 
+const NOTE_CHANGE_THRESHOLD = 10; // [보정] 노트가 이만큼 유지되어야 화면에 뜸 (목소리 차단용)
 
-// [수정] 락킹(고정) 조건 완화
+// [보정] 쉬운 튜닝을 위한 관용적인 설정
 let isNoteLocked = false;
 let lockedNote = "";
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 5;  // 5번 연속 범위 내에 들면 고정
-const LOCK_ENTRY_CENTS = 5;      // ±5센트 이내면 '정확'하다고 판단 (기존 3센트보다 완화)
-const UNLOCK_THRESHOLD_CENTS = 15; // 고정된 후에는 ±15센트까지 버팀
+
+const LOCK_REQUIRED_FRAMES = 8;  // 이 프레임만큼 유지하면 잠금
+const LOCK_ENTRY_CENTS = 9;      // [핵심] ±9센트 이내면 '정확'으로 판단 (매우 관용적)
+const UNLOCK_THRESHOLD_CENTS = 20; // 잠긴 후에는 ±20센트 벗어나야 풀림
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -93,9 +94,10 @@ const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 const dynDetail = document.getElementById('dyn-detail');
 
-// --- 4. 초기화 및 UI ---
+// --- 4. 초기화 ---
 function init() {
-    renderStringButtons(currentInstrument);
+    loadSavedSettings();
+
     instCards.forEach(card => {
         card.addEventListener('click', (e) => {
             const type = card.dataset.type;
@@ -108,18 +110,53 @@ function init() {
             activateInstrument(type, card);
         });
     });
+
     startBtn.addEventListener('click', toggleTuner);
     closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+
     generateModalList();
     requestAnimationFrame(updateVisualizer);
+}
+
+function loadSavedSettings() {
+    const savedCurrent = localStorage.getItem('churchTuner_current');
+    const savedDynamic = localStorage.getItem('churchTuner_dynamic');
+
+    if (savedDynamic && instruments[savedDynamic]) {
+        currentDynamicInst = savedDynamic;
+        const inst = instruments[savedDynamic];
+        dynIcon.textContent = inst.icon;
+        dynName.textContent = inst.name;
+        dynDetail.textContent = inst.detail;
+    }
+
+    if (savedCurrent && instruments[savedCurrent]) {
+        if (savedCurrent === 'guitar' || savedCurrent === 'bass') {
+            const targetCard = document.querySelector(`.inst-card[data-type="${savedCurrent}"]`);
+            activateInstrument(savedCurrent, targetCard);
+        } else {
+            activateInstrument(savedCurrent, dynamicCard);
+        }
+    } else {
+        const guitarCard = document.querySelector('.inst-card[data-type="guitar"]');
+        activateInstrument('guitar', guitarCard);
+    }
 }
 
 function activateInstrument(instKey, cardElement) {
     instCards.forEach(c => c.classList.remove('active'));
     cardElement.classList.add('active');
+    
     currentInstrument = instKey;
+    // 악기가 바뀌면 튜닝 완료 기록만 초기화 (필요시 제거 가능)
     tunedStrings.clear(); 
+    
+    localStorage.setItem('churchTuner_current', instKey);
+    if (instKey !== 'guitar' && instKey !== 'bass') {
+        localStorage.setItem('churchTuner_dynamic', instKey);
+    }
+
     if(isRunning) applyInstrumentFilter();
     resetUI(false);
     renderStringButtons(currentInstrument);
@@ -145,6 +182,7 @@ function selectDynamicInstrument(key) {
     dynIcon.textContent = inst.icon;
     dynName.textContent = inst.name;
     dynDetail.textContent = inst.detail;
+    localStorage.setItem('churchTuner_dynamic', key);
     modal.classList.add('hidden');
     activateInstrument(key, dynamicCard);
 }
@@ -169,15 +207,27 @@ function renderStringButtons(instType) {
     });
 }
 
+// [핵심] 하단 버튼 완료 표시 로직
 function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
-        btn.classList.remove('detected', 'locked', 'tuned');
-        if (tunedStrings.has(btnKey)) btn.classList.add('tuned');
+        
+        // 일단 모든 상태 제거
+        btn.classList.remove('detected', 'locked'); 
+        // tuned 클래스는 아래에서 제어
+
+        // 이미 튜닝된 줄인지 확인
+        if (tunedStrings.has(btnKey)) {
+            btn.classList.add('tuned');
+        } else {
+            btn.classList.remove('tuned');
+        }
+
+        // 현재 감지된 줄에 대한 시각 효과 (튜닝 완료된 줄이라도 현재 치고 있으면 감지 표시)
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
-            btn.classList.remove('tuned'); 
+            btn.classList.remove('tuned'); // 현재 감지 중일 땐 잠시 tuned 뺌 (locked/detected로 표시)
             btn.classList.add(isLocked ? 'locked' : 'detected');
         }
     });
@@ -275,11 +325,11 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소리가 끊길 때 로직
-    if (rms < 0.015) { 
+    // [보정] 소음 게이트: RMS 임계값을 약간 높여(0.02) 주변 잡소리 무시
+    if (rms < 0.02) { 
         if (!isNoteLocked) {
              if(noteStabilityCounter > 0) noteStabilityCounter--;
-             else if (targetCents !== 0) targetCents = 0; // 즉시 중앙으로 복귀 X, 천천히
+             else if (targetCents !== 0) targetCents = 0; 
         }
         requestAnimationFrame(processAudio);
         return;
@@ -290,8 +340,11 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
+// [보정] 목소리 차단을 위한 YIN 알고리즘 강화
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.15;
+    // [핵심] Threshold를 0.15 -> 0.10으로 낮춰서
+    // 사람 목소리(불규칙)는 무시하고, 악기 소리(규칙적)만 통과시킴
+    const threshold = 0.10; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -340,6 +393,7 @@ function updateTuner(frequency) {
     const detectedNoteKey = noteName + octave;
     const currentNoteKey = currentDisplayedNote + currentDisplayedOctave;
 
+    // 노트 안정화: 목소리처럼 음이 계속 바뀌면 카운터가 리셋되어 화면에 표시 안 됨
     if (currentDisplayedNote === "--" || detectedNoteKey === currentNoteKey) {
         noteStabilityCounter = NOTE_CHANGE_THRESHOLD; 
         processCentsAndLocking(noteName, octave, rawCents, frequency);
@@ -356,33 +410,29 @@ function updateTuner(frequency) {
     }
 }
 
-// --- 6. 락킹 로직 및 UI 업데이트 (개선됨) ---
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
     const smoothCents = kalman.filter(rawCents);
 
     if (isNoteLocked) {
-        // 이미 락이 걸린 경우: 허용 범위(±15)를 벗어나야만 풀림
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            // 범위 내에 있으면 강제로 0으로 고정 (심리적 안정)
             targetCents = 0;
             guideMsg.textContent = "PERFECT";
         }
     } else {
         targetCents = smoothCents;
-        // [수정] 진입 장벽 완화: ±5센트 이내면 카운트 시작
+        // [보정] 진입 장벽 완화: ±9센트 이내면 고정 카운트 시작
         if (Math.abs(smoothCents) <= LOCK_ENTRY_CENTS) {
             lockDuration++;
-            // 일정 시간 유지 시 고정
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 lockedNote = noteName;
-                tunedStrings.add(noteName + octave);
+                tunedStrings.add(noteName + octave); // 튜닝 완료 기록
                 playSuccessSound();
-                targetCents = 0; // 락 걸리는 순간 중앙으로 스냅
+                targetCents = 0; 
             }
         } else {
             lockDuration = 0; 
@@ -399,7 +449,12 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     
     if(!isLocked) freqEl.textContent = frequency.toFixed(1) + " Hz";
     
-    const displayStr = isLocked ? "OK" : ((cents > 0 ? "+" : "") + cents);
+    // [보정] Easy Mode UI: 미세한 오차는 무시
+    let displayStr = "";
+    if (isLocked) displayStr = "OK";
+    else if (Math.abs(cents) <= 9) displayStr = "GOOD"; // ±9까지는 GOOD
+    else displayStr = (cents > 0 ? "+" : "") + cents;
+
     centsEl.textContent = displayStr; 
     centsEl.classList.remove('hidden');
 
@@ -407,18 +462,20 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     let msg = "PERFECT";
     const style = getComputedStyle(document.body);
 
+    // [보정] Too High/Low 메시지를 쉽게 띄우지 않음
     if (isLocked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -5) { // 색상 변화 기준도 조금 완화
+    } else if (cents < -9) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW";
-    } else if (cents > 5) {
+    } else if (cents > 9) {
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH";
     } else {
-        // 미세하게 맞지 않지만 락은 안 걸린 상태 (초록색 유도)
+        // -9 ~ 9 사이: 초록색 유지 (심리적 안정)
         colorVar = style.getPropertyValue('--accent-green');
+        msg = "TUNING...";
     }
 
     guideMsg.textContent = msg;
@@ -435,10 +492,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
-    // [수정] 그래프 반응 속도 낮춤: factor를 0.15 -> 0.08로 줄여 묵직하게 만듦
-    // 락 걸리면 0.2 속도로 빠르게 중앙으로 붙음
-    const factor = isNoteLocked ? 0.2 : 0.08; 
-    
+    const factor = isNoteLocked ? 0.2 : 0.1; 
     displayCents += (targetCents - displayCents) * factor;
 
     let percentage = 50 + displayCents;
