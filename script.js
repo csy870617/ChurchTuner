@@ -8,25 +8,30 @@ const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 
 // --- 전역 변수 ---
 let currentInstrument = 'guitar';
-let targetFrequency = null; // 선택된 목표 주파수 (null이면 오토모드)
-
+let targetFrequency = null;
 let audioContext = null; 
 let analyser = null; 
 let mediaStream = null;
 let source = null;
-let filterNode = null; // [핵심] 소음 차단용 필터
 let isRunning = false; 
 let rafId = null; 
 
-// 성능 & 안정화 변수
-const BUF_SIZE = 2048;
+// 오디오 처리 변수 (YIN 알고리즘용)
+const BUF_SIZE = 4096; // 해상도 높임
 const buf = new Float32Array(BUF_SIZE);
-const pitchBuffer = []; 
+const yinBuffer = new Float32Array(BUF_SIZE / 2); // YIN 계산용 버퍼
+
+// 안정화 버퍼
+const stableBuffer = []; 
+const STABILITY_THRESHOLD = 2; // 반응 속도 향상
+
+// 튜닝 완료 기록
+const tunedStrings = new Set(); 
 
 // 화면 갱신용
 let displayCents = 0; 
 let targetCents = 0;
-let lastSuccessTime = 0;
+let silenceTimer = 0;
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -36,7 +41,6 @@ const octaveEl = document.getElementById('octave');
 const freqEl = document.getElementById('frequency');
 const centsEl = document.getElementById('cents');
 const tuningIndicator = document.getElementById('tuning-indicator');
-const statusDot = document.getElementById('status-dot');
 const guideMsg = document.getElementById('guide-msg');
 const modeBadge = document.getElementById('mode-badge');
 const stringContainer = document.getElementById('string-container');
@@ -46,13 +50,14 @@ const instCards = document.querySelectorAll('.inst-card');
 function init() {
     renderStringButtons(currentInstrument);
     
-    // 악기 선택
     instCards.forEach(card => {
-        card.addEventListener('click', () => {
+        card.addEventListener('click', (e) => {
+            e.stopPropagation();
             instCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             currentInstrument = card.dataset.type;
-            setManualMode(null); // 오토모드로 리셋
+            tunedStrings.clear();
+            setManualMode(null);
             renderStringButtons(currentInstrument);
         });
     });
@@ -73,150 +78,112 @@ function renderStringButtons(instType) {
         btn.dataset.freq = str.freq;
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
         
-        // 버튼 클릭 시: 해당 줄만 듣기 (소음 차단 모드)
         btn.addEventListener('click', () => {
-            if(!isRunning) startTuner(); // 꺼져있으면 켜기
-            playReferenceTone(str.freq); // 기준음 재생
             setManualMode(str);
         });
         stringContainer.appendChild(btn);
     });
 }
 
-// [핵심] 수동/자동 모드 및 필터 설정
 function setManualMode(stringData) {
     if (stringData) {
-        // [수동 모드] 해당 주파수 대역만 통과시키는 필터 적용
         targetFrequency = stringData.freq;
         modeBadge.textContent = `TARGET: ${stringData.num}번줄 (${stringData.note})`;
         modeBadge.classList.add('manual');
         resetModeBtn.classList.remove('hidden');
-        guideMsg.textContent = "잡음 차단 모드 (Band-Pass)";
+        guideMsg.textContent = "잡음 차단 모드";
         guideMsg.style.color = "var(--accent-yellow)";
-        
-        if (filterNode) {
-            filterNode.type = 'bandpass';
-            filterNode.frequency.value = targetFrequency;
-            filterNode.Q.value = 1.5; // 대역폭 조절 (높을수록 좁음)
-        }
     } else {
-        // [오토 모드] 모든 소리 통과
         targetFrequency = null;
         modeBadge.textContent = "AUTO MODE";
         modeBadge.classList.remove('manual');
         resetModeBtn.classList.add('hidden');
         guideMsg.textContent = "줄을 튕겨주세요";
         guideMsg.style.color = "#888";
-        
-        if (filterNode) {
-            filterNode.type = 'allpass'; // 필터 끔
-        }
     }
-    
-    // 버튼 UI 업데이트
+    updateButtonStyles(stringData ? stringData.freq : null);
+    resetUI();
+}
+
+function updateButtonStyles(activeFreq) {
     const btns = document.querySelectorAll('.string-btn');
     btns.forEach(btn => {
+        const freq = parseFloat(btn.dataset.freq);
         btn.classList.remove('manual-target');
-        if (stringData && Math.abs(parseFloat(btn.dataset.freq) - stringData.freq) < 0.1) {
+        
+        if (activeFreq && Math.abs(freq - activeFreq) < 0.1) {
             btn.classList.add('manual-target');
+        }
+        
+        // 튜닝 완료 상태 표시
+        const key = freq.toFixed(2);
+        if (tunedStrings.has(key) && !btn.classList.contains('manual-target')) {
+            btn.classList.add('tuned');
+        } else {
+            btn.classList.remove('tuned');
         }
     });
 }
 
-function playReferenceTone(freq) {
-    if (!audioContext) return;
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(freq, audioContext.currentTime);
-    gain.gain.setValueAtTime(0.1, audioContext.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.0);
-    osc.connect(gain); gain.connect(audioContext.destination);
-    osc.start(); osc.stop(audioContext.currentTime + 1.0);
-}
-
-function playSuccessSound() {
-    if (!audioContext) return;
-    const now = Date.now();
-    if(now - lastSuccessTime < 1000) return; // 1초 내 중복 재생 방지
-
-    const t = audioContext.currentTime;
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t); 
-    gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    osc.connect(gain); gain.connect(audioContext.destination);
-    osc.start(); osc.stop(t + 0.5);
-    lastSuccessTime = now;
-}
-
+// --- 오디오 엔진 관리 (버튼 클릭 문제 해결) ---
 function toggleTuner() {
     if (isRunning) stopTuner();
     else startTuner();
 }
 
 async function startTuner() {
-    try {
-        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        
-        // [중요] 사용자가 버튼을 눌렀을 때 Context를 확실히 깨워야 함
-        if (audioContext.state === 'suspended') {
-            await audioContext.resume();
-        }
+    if (isRunning) return;
 
+    try {
+        // 1. AudioContext 생성 또는 재개 (사용자 제스처 필수)
+        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === 'suspended') await audioContext.resume();
+
+        // 2. 마이크 권한 요청
         const constraints = { 
             audio: { 
                 echoCancellation: false, 
-                autoGainControl: false, // 마이크 감도 자동 조절 끔 (소음 증폭 방지)
-                noiseSuppression: false 
+                autoGainControl: false, 
+                noiseSuppression: false,
+                latency: 0
             } 
         };
-
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
         
-        // 필터 노드 생성 (BandPass Filter)
-        filterNode = audioContext.createBiquadFilter();
-        filterNode.type = 'allpass'; // 초기엔 오토모드
-
         source = audioContext.createMediaStreamSource(mediaStream);
-        
-        // 연결: Source -> Filter -> Analyser -> Destination(X)
-        source.connect(filterNode);
-        filterNode.connect(analyser);
+        source.connect(analyser);
 
         isRunning = true;
-        startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
+        startBtn.classList.add('stop'); 
+        btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
         
-        // 만약 이미 타겟이 잡혀있다면 필터 적용
-        if(targetFrequency) {
-            filterNode.type = 'bandpass';
-            filterNode.frequency.value = targetFrequency;
-            filterNode.Q.value = 1.5;
-        }
-
         processAudio();
     } catch (err) { 
         console.error(err); 
-        alert("마이크를 켤 수 없습니다. 권한을 확인해주세요."); 
+        alert("마이크를 켤 수 없습니다. 브라우저 설정을 확인해주세요."); 
     }
 }
 
 function stopTuner() {
     isRunning = false;
-    startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
+    startBtn.classList.remove('stop'); 
+    btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
-    resetUI();
     
+    resetUI();
+    guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
+
     if (rafId) cancelAnimationFrame(rafId);
     if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
     if (source) source.disconnect();
 }
 
-function resetUI() {
-    targetCents = 0; displayCents = 0;
+function resetUI(keepTuned = false) {
+    displayCents = 0; targetCents = 0;
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
@@ -227,79 +194,128 @@ function resetUI() {
     });
 }
 
+// --- 오디오 처리 (YIN 알고리즘: 잡음 제거 특화) ---
 function processAudio() {
     if (!isRunning) return;
 
     analyser.getFloatTimeDomainData(buf);
     
-    // 1. RMS(볼륨) 체크 - 강력한 노이즈 게이트
+    // 1. 볼륨 체크 (RMS)
     let rms = 0;
     for (let i = 0; i < BUF_SIZE; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / BUF_SIZE);
 
-    // 0.015 미만의 소리는 아예 무시 (키보드, 옷깃 스치는 소리 등)
+    // 노이즈 게이트 (0.015): 너무 작은 소리는 무시
     if (rms < 0.015) {
-        targetCents = 0; // 바늘 중앙으로
+        handleSilence();
         rafId = requestAnimationFrame(processAudio);
         return;
     }
 
-    // 2. 피치 감지
-    const pitch = autoCorrelate(buf, audioContext.sampleRate);
+    // 2. 피치 감지 (YIN Algorithm)
+    const pitch = getPitchYIN(buf, audioContext.sampleRate);
 
     if (pitch !== -1) {
-        // [이중 안전장치] 필터를 통과했더라도 타겟과 너무 다르면 무시
+        // 매뉴얼 모드 필터: 타겟 주파수와 ±15% 이상 차이나면 무시 (강력한 필터링)
         if (targetFrequency) {
             const ratio = pitch / targetFrequency;
-            if (ratio < 0.8 || ratio > 1.2) {
-                // 범위 밖 소음
+            if (ratio < 0.85 || ratio > 1.15) {
+                handleSilence(); // 범위 밖 소음
                 rafId = requestAnimationFrame(processAudio);
                 return;
             }
         }
-        updateTuner(pitch);
-    } else {
-        // 소리는 크지만 음정이 불분명한 경우 (타건음, 박수) -> 무시
-        if(targetCents !== 0) {
-            // 천천히 리셋
-            targetCents = 0;
+
+        // 안정화 버퍼 업데이트
+        updateStableBuffer(pitch);
+
+        if (stableBuffer.length >= STABILITY_THRESHOLD) {
+            const avgPitch = stableBuffer.reduce((a, b) => a + b) / stableBuffer.length;
+            silenceTimer = 0;
+            updateTuner(avgPitch);
         }
+    } else {
+        handleSilence(); // 피치 감지 실패 (잡음)
     }
 
     rafId = requestAnimationFrame(processAudio);
 }
 
-function autoCorrelate(buf, sampleRate) {
-    let size = buf.length;
+// YIN Pitch Detection (간소화 버전) - 잡음과 톤을 구분하는 능력이 뛰어남
+function getPitchYIN(buffer, sampleRate) {
+    const threshold = 0.15; // 낮을수록 엄격함 (잡음 제거율 ↑)
+    const bufferSize = buffer.length;
+    let tauEstimate = -1;
+    let pitchInHz = -1;
+
+    // Step 1: Difference Function
+    for (let tau = 0; tau < yinBuffer.length; tau++) yinBuffer[tau] = 0;
     
-    // 검색 범위 제한 (기타 음역대)
-    let r1 = Math.floor(sampleRate / 1200); 
-    let r2 = Math.floor(sampleRate / 40);   
-    if (r2 > size) r2 = size;
-
-    let bestOffset = -1;
-    let bestCorrelation = 0;
-
-    for (let offset = r1; offset < r2; offset++) {
-        let correlation = 0;
-        // 정밀 계산
-        for (let i = 0; i < size - offset; i++) {
-            correlation += Math.abs(buf[i] - buf[i + offset]);
-        }
-        correlation = 1 - (correlation / size);
-
-        if (correlation > bestCorrelation) {
-            bestCorrelation = correlation;
-            bestOffset = offset;
+    for (let tau = 1; tau < yinBuffer.length; tau++) {
+        for (let i = 0; i < yinBuffer.length; i++) {
+            const delta = buffer[i] - buffer[i + tau];
+            yinBuffer[tau] += delta * delta;
         }
     }
 
-    // [중요] 상관관계 0.96 이상만 인정 (잡음 차단 핵심)
-    // 이 값이 높을수록 '맑은 소리'만 통과시킵니다.
-    if (bestCorrelation > 0.96) {
-        return sampleRate / bestOffset;
+    // Step 2: Cumulative Mean Normalized Difference
+    yinBuffer[0] = 1;
+    let runningSum = 0;
+    for (let tau = 1; tau < yinBuffer.length; tau++) {
+        runningSum += yinBuffer[tau];
+        if (runningSum === 0) yinBuffer[tau] = 1;
+        else yinBuffer[tau] *= tau / runningSum;
     }
+
+    // Step 3: Absolute Threshold
+    // 그래프의 골짜기(Dip)가 임계값보다 낮아야 "음정"으로 인정
+    // 키보드 소리, 박수 소리는 이 조건에서 대부분 걸러짐
+    for (let tau = 2; tau < yinBuffer.length; tau++) {
+        if (yinBuffer[tau] < threshold) {
+            while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) {
+                tau++;
+            }
+            tauEstimate = tau;
+            break;
+        }
+    }
+
+    if (tauEstimate !== -1) {
+        // 보간법으로 정밀도 향상
+        const x0 = tauEstimate;
+        const x1 = (x0 < 1) ? x0 : x0 - 1;
+        const x2 = (x0 + 1 < yinBuffer.length) ? x0 + 1 : x0;
+        const den = yinBuffer[x2] - yinBuffer[x1];
+        if (den === 0) tauEstimate = x0;
+        else {
+            const delta = yinBuffer[x1] - yinBuffer[x0];
+            tauEstimate = x0 + 0.5 * delta / (den + yinBuffer[x2] - 2 * yinBuffer[x0]);
+        }
+        pitchInHz = sampleRate / tauEstimate;
+    }
+
+    // 범위 체크 (30Hz ~ 1500Hz)
+    if (pitchInHz > 30 && pitchInHz < 1500) return pitchInHz;
     return -1;
+}
+
+function updateStableBuffer(pitch) {
+    if (stableBuffer.length > 0) {
+        const last = stableBuffer[stableBuffer.length - 1];
+        // 급격한 변화(옥타브 튐) 방지
+        if (Math.abs(last - pitch) > 10) stableBuffer.length = 0;
+    }
+    stableBuffer.push(pitch);
+    if (stableBuffer.length > STABILITY_THRESHOLD) stableBuffer.shift();
+}
+
+function handleSilence() {
+    silenceTimer++;
+    if (silenceTimer > 20) { 
+        targetCents = 0;
+        stableBuffer.length = 0;
+        if (silenceTimer > 60) resetUI(true);
+    }
 }
 
 function updateTuner(frequency) {
@@ -325,10 +341,15 @@ function updateTuner(frequency) {
         noteNameEl.style.color = "var(--accent-green)";
         guideMsg.textContent = "PERFECT!";
         guideMsg.style.color = "var(--accent-green)";
-        playSuccessSound();
         
-        // 가까운 버튼 불 켜기
-        highlightClosestString(frequency);
+        // 튜닝 완료 기록
+        if (targetFrequency) {
+            tunedStrings.add(targetFrequency.toFixed(2));
+        } else {
+            markClosestStringAsTuned(frequency);
+        }
+        updateButtonStyles(targetFrequency);
+        
     } else {
         centsEl.textContent = (cents > 0 ? "+" : "") + cents;
         if (cents < 0) {
@@ -342,9 +363,25 @@ function updateTuner(frequency) {
             guideMsg.textContent = "TOO HIGH ▲";
             guideMsg.style.color = "var(--accent-pink)";
         }
-        highlightClosestString(frequency);
     }
     centsEl.classList.remove('hidden');
+    
+    // 하단 버튼 하이라이트 (오토/매뉴얼 공통)
+    highlightClosestString(frequency);
+}
+
+function markClosestStringAsTuned(freq) {
+    const btns = document.querySelectorAll('.string-btn');
+    let closest = null;
+    let minDiff = Infinity;
+    btns.forEach(btn => {
+        const btnFreq = parseFloat(btn.dataset.freq);
+        const diff = Math.abs(freq - btnFreq);
+        if (diff < 5) {
+            closest = btnFreq.toFixed(2);
+        }
+    });
+    if (closest) tunedStrings.add(closest);
 }
 
 function highlightClosestString(frequency) {
@@ -353,8 +390,20 @@ function highlightClosestString(frequency) {
     let minDiff = Infinity;
 
     btns.forEach(btn => {
-        btn.classList.remove('detected', 'locked'); // 초기화
+        // 매뉴얼 모드 타겟은 건드리지 않음
+        if (btn.classList.contains('manual-target')) return;
+
+        btn.classList.remove('detected', 'locked');
+        // 튜닝 완료 상태 복구
+        const freqKey = parseFloat(btn.dataset.freq).toFixed(2);
+        if (tunedStrings.has(freqKey)) {
+            btn.classList.add('tuned');
+        } else {
+            btn.classList.remove('tuned');
+        }
+
         const targetFreq = parseFloat(btn.dataset.freq);
+        // Cents 차이 (정확도)
         const diff = Math.abs(1200 * Math.log2(frequency / targetFreq));
 
         if (diff < minDiff) {
@@ -364,15 +413,14 @@ function highlightClosestString(frequency) {
     });
 
     if (closestBtn && minDiff < 300) {
-        // 정튜닝이면 locked(초록), 아니면 detected(파랑)
-        const isPerfect = Math.abs(1200 * Math.log2(frequency / parseFloat(closestBtn.dataset.freq))) <= 3;
-        closestBtn.classList.add(isPerfect ? 'locked' : 'detected');
+        closestBtn.classList.remove('tuned'); 
+        // 오차 3 이내면 locked(초록), 아니면 detected(파랑)
+        closestBtn.classList.add(minDiff <= 3 ? 'locked' : 'detected');
     }
 }
 
 function updateVisualizer() {
-    // 부드러운 움직임 (Lerp)
-    displayCents += (targetCents - displayCents) * 0.3;
+    displayCents += (targetCents - displayCents) * 0.3; // 부드러운 움직임
     let percentage = 50 + displayCents;
     if (percentage < 0) percentage = 0; 
     if (percentage > 100) percentage = 100;
