@@ -21,11 +21,10 @@ const stableBuffer = [];
 const STABILITY_THRESHOLD = 5; 
 
 // [완료된 줄 저장소]
-const tunedStrings = new Set(); // 예: "E2", "A2" 저장
+const tunedStrings = new Set(); 
 
 // 상태 변수
 let lastNoteName = "--";
-let lastCents = 0;
 let isNoteLocked = false;
 let lockedNote = "";
 
@@ -55,10 +54,7 @@ function init() {
             instCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             currentInstrument = card.dataset.type;
-            
-            // 악기 바뀌면 기록 초기화
-            tunedStrings.clear();
-            
+            tunedStrings.clear(); // 악기 변경 시 기록 초기화
             resetTarget();
             renderStringButtons(currentInstrument);
         });
@@ -89,9 +85,25 @@ function renderStringButtons(instType) {
         btn.className = 'string-btn';
         btn.dataset.note = str.note; btn.dataset.octave = str.octave;
         btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
-        btn.addEventListener('click', () => {
+        
+        // 버튼 클릭 이벤트 (수정됨: 튜너 정지 방지)
+        btn.addEventListener('click', async () => {
+            // 오디오 컨텍스트가 없거나 멈춰있으면 시작 시도
+            if (!audioContext) {
+                // 아직 튜너가 안 켜졌으면 그냥 켜지 않고 소리만 나게 할 수도 있지만, 
+                // 보통은 사용자가 튜닝을 하려는 의도이므로 오디오 엔진을 준비합니다.
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
             playReferenceTone(str.freq);
             setTargetMode(str.freq, str.note, str.octave, btn);
+            
+            // 만약 튜너가 꺼져있었다면 켜기 (선택사항, 여기선 유지)
+            // if (!isRunning) startTuner();
         });
         stringContainer.appendChild(btn);
     });
@@ -109,40 +121,42 @@ function setTargetMode(freq, note, octave, btnElem) {
     guideMsg.style.color = "var(--accent-yellow)";
 }
 
-// [핵심 수정] 튜닝된 줄(tunedStrings)은 계속 불 켜두기
 function highlightStringBtn(noteName, octave, isLocked) {
-    // 수동 모드일 땐 강조 표시 안함 (타겟 버튼만 노란색)
     if (targetFrequency) return;
-
     const btns = document.querySelectorAll('.string-btn');
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
-
-        // 1. 기본적으로 모두 끔 (tuned 상태는 유지해야 하므로 아래에서 체크)
         btn.classList.remove('detected', 'locked', 'tuned');
 
-        // 2. 이미 튜닝 완료된 줄이면 'tuned' 클래스 추가 (초록불 유지)
         if (tunedStrings.has(btnKey)) {
             btn.classList.add('tuned');
         }
 
-        // 3. 현재 연주 중인 줄이면 상태 덮어쓰기
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
-            btn.classList.remove('tuned'); // 현재 상태(locked/detected)가 우선
+            btn.classList.remove('tuned'); 
             btn.classList.add(isLocked ? 'locked' : 'detected');
         }
     });
 }
 
 function playReferenceTone(freq) {
-    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioContext) return;
+    
+    // 마이크 스트림과는 별개로 오실레이터 생성 -> 출력 (마이크 방해 안함)
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
-    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(freq, audioContext.currentTime);
+    osc.type = 'sawtooth'; 
+    osc.frequency.setValueAtTime(freq, audioContext.currentTime);
+    
+    // 볼륨 조절
     gain.gain.setValueAtTime(0.1, audioContext.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.0);
-    osc.connect(gain); gain.connect(audioContext.destination);
-    osc.start(); osc.stop(audioContext.currentTime + 1.0);
+    
+    osc.connect(gain); 
+    gain.connect(audioContext.destination);
+    
+    osc.start(); 
+    osc.stop(audioContext.currentTime + 1.0);
 }
 
 function toggleTuner() {
@@ -156,11 +170,7 @@ async function startTuner() {
         if (audioContext.state === 'suspended') await audioContext.resume();
 
         const constraints = { 
-            audio: { 
-                echoCancellation: false, 
-                autoGainControl: false, 
-                noiseSuppression: false 
-            } 
+            audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } 
         };
 
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -177,7 +187,7 @@ async function startTuner() {
         guideMsg.textContent = "PLAY A STRING...";
         
         processAudio();
-    } catch (err) { console.error(err); alert("마이크 권한 오류"); }
+    } catch (err) { console.error(err); alert("마이크 권한이 필요합니다."); }
 }
 
 function stopTuner() {
@@ -185,7 +195,6 @@ function stopTuner() {
     startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
     statusDot.classList.remove('active');
     
-    // 리셋 시에도 튜닝 기록은 유지
     resetUI(true); 
     
     guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
@@ -202,20 +211,16 @@ function resetUI(keepTuned = false) {
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
     tuningIndicator.style.boxShadow = "none";
     
-    // UI 리셋 시, 현재 감지 표시(locked/detected)는 지우되, 완료 기록(tuned)은 다시 그림
     document.querySelectorAll('.string-btn').forEach(b => {
         b.classList.remove('detected', 'locked');
         if (keepTuned) {
-            // 유지 모드면 tuned 클래스 복구
             const key = b.dataset.note + b.dataset.octave;
             if (tunedStrings.has(key)) b.classList.add('tuned');
         } else {
-            // 완전 초기화면 tuned도 삭제 (악기 변경 등)
             b.classList.remove('tuned');
         }
     });
     
-    // 만약 소리가 끊겨서 호출된거라면(keepTuned=true), tunedStrings 상태를 반영해줘야 함
     if (keepTuned) highlightStringBtn(null, null, false);
 }
 
@@ -229,10 +234,8 @@ function processAudio() {
         updateStableBuffer(pitch);
     } else {
         stableBuffer.length = 0; 
-        // 소리가 없으면 천천히 중앙으로
         if (targetCents !== 0) {
             targetCents = 0;
-            // 소리가 끊기면 잠시 후 UI 리셋 (단, 기록된 초록불은 유지)
             resetUI(true);
         }
     }
@@ -240,8 +243,9 @@ function processAudio() {
     if (stableBuffer.length >= STABILITY_THRESHOLD) {
         const avgPitch = stableBuffer.reduce((a, b) => a + b) / stableBuffer.length;
         if (targetFrequency) {
+            // 수동 모드 범위 체크 (넓게 잡음)
             const ratio = avgPitch / targetFrequency;
-            if (ratio > 0.8 && ratio < 1.2) updateTuner(avgPitch);
+            if (ratio > 0.7 && ratio < 1.3) updateTuner(avgPitch);
         } else {
             updateTuner(avgPitch);
         }
@@ -272,7 +276,6 @@ function yinPitchDetection(buffer, sampleRate) {
             deltaSum += delta * delta;
         }
         yinBuffer[tau] = deltaSum;
-        
         runningSum += yinBuffer[tau];
         if (runningSum !== 0) yinBuffer[tau] *= tau / runningSum;
         else yinBuffer[tau] = 1;
@@ -329,9 +332,9 @@ function updateTuner(frequency) {
             isNoteLocked = true;
             lockedNote = noteName;
             
-            // [핵심] 완료된 줄 기록
-            tunedStrings.add(noteName + octave);
+            tunedStrings.add(noteName + octave); // 기록 저장
             
+            // 알림음 재생
             const osc = audioContext.createOscillator();
             const gain = audioContext.createGain();
             osc.type = 'sine'; osc.frequency.setValueAtTime(880, audioContext.currentTime); 
