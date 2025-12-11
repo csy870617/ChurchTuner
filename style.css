@@ -100,9 +100,7 @@ h1 { font-size: 1rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 .tuning-indicator {
     position: absolute; width: 12px; height: 30px; background: var(--accent-green);
     border-radius: 10px; left: 50%; transform: translate(-50%, -50%);
-    box-shadow: 0 0 20px var(--accent-green);
-    /* transition 제거: JS 물리 엔진으로 제어 */
-    will-change: left;
+    box-shadow: 0 0 20px var(--accent-green); transition: left 0.08s ease-out, background 0.2s;
 }
 #note-name { font-size: 5.5rem; font-weight: 900; color: #222; -webkit-text-stroke: 2px #333; transition: all 0.1s;}
 #note-name.active { color: var(--accent-green); -webkit-text-stroke: 0; text-shadow: 0 0 50px var(--accent-green); }
@@ -128,17 +126,22 @@ h1 { font-size: 1rem; font-weight: 900; margin: 0; letter-spacing: 1px; }
 }
 .string-btn .str-num { font-family: var(--font-mono); font-size: 0.6rem; color: #555; margin-bottom: 4px; }
 
+/* 감지됨 (파란색) */
 .string-btn.detected {
     border-color: var(--accent-blue); color: #fff;
     background: linear-gradient(to bottom right, rgba(0, 225, 255, 0.1), var(--bg-card));
     box-shadow: 0 0 10px rgba(0, 225, 255, 0.2);
 }
-.string-btn.locked {
+
+/* 정튜닝 완료 (초록색) - 유지됨 */
+.string-btn.locked, .string-btn.tuned {
     border-color: var(--accent-green); color: #fff;
     background: linear-gradient(to bottom right, rgba(0, 255, 157, 0.2), var(--bg-card));
     box-shadow: 0 0 20px var(--accent-green);
     transform: scale(1.05);
 }
+
+/* 수동 모드 선택됨 (노란색) */
 .string-btn.manual-target {
     border-color: var(--accent-yellow); color: #fff;
     background: linear-gradient(to bottom right, rgba(255, 217, 0, 0.1), var(--bg-card));
