@@ -1,6 +1,6 @@
-// --- 1. 악기 데이터 (고음역대 범위 확장) ---
+// --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1300], strings: [ 
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard", range: [60, 1000], strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
         { note: "D", octave: 3, freq: 146.83, num: 4 }, 
@@ -8,50 +8,50 @@ const instruments = {
         { note: "B", octave: 3, freq: 246.94, num: 2 }, 
         { note: "E", octave: 4, freq: 329.63, num: 1 } 
     ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 500], strings: [ 
+    bass: { name: "BASS", icon: "🎸", detail: "Standard", range: [30, 400], strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
         { note: "G", octave: 2, freq: 98.00, num: 1 } 
     ], columns: 2 },
-    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal", range: [20, 3500], isChromatic: true, strings: [], columns: 1 },
-    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1200], strings: [ 
+    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
+    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1000], strings: [ 
         { note: "G", octave: 4, freq: 392.00, num: 4 }, 
         { note: "C", octave: 4, freq: 261.63, num: 3 }, 
         { note: "E", octave: 4, freq: 329.63, num: 2 }, 
         { note: "A", octave: 4, freq: 440.00, num: 1 } 
     ], columns: 2 },
-    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1500], strings: [ 
+    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1200], strings: [ 
         { note: "G", octave: 3, freq: 196.00, num: 4 }, 
         { note: "D", octave: 4, freq: 293.66, num: 3 }, 
         { note: "A", octave: 4, freq: 440.00, num: 2 }, 
         { note: "E", octave: 5, freq: 659.25, num: 1 } 
     ], columns: 2 },
-    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 800], strings: [ 
+    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 600], strings: [ 
         { note: "C", octave: 2, freq: 65.41, num: 4 }, 
         { note: "G", octave: 2, freq: 98.00, num: 3 }, 
         { note: "D", octave: 3, freq: 146.83, num: 2 }, 
         { note: "A", octave: 3, freq: 220.00, num: 1 } 
     ], columns: 2 },
-    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 400], strings: [ 
+    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 300], strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
         { note: "G", octave: 2, freq: 98.00, num: 1 } 
     ], columns: 2 },
-    flute: { name: "FLUTE", icon: "🎼", detail: "C Inst.", range: [200, 2500], strings: [ 
+    flute: { name: "FLUTE", icon: "🎼", detail: "C Inst.", range: [200, 2000], strings: [ 
         { note: "A", octave: 4, freq: 440.00, num: "A" }, 
         { note: "A#", octave: 4, freq: 466.16, num: "Bb" } 
     ], columns: 2 },
-    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Inst.", range: [100, 1800], strings: [ 
+    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Inst.", range: [100, 1500], strings: [ 
         { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, 
         { note: "F", octave: 4, freq: 349.23, num: "G" } 
     ], columns: 2 },
-    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Inst.", range: [100, 1500], strings: [ 
+    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Inst.", range: [100, 1200], strings: [ 
         { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, 
         { note: "A#", octave: 3, freq: 466.16, num: "G" } 
     ], columns: 2 },
-    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", range: [150, 1500], strings: [ 
+    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", range: [150, 1200], strings: [ 
         { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, 
         { note: "F", octave: 4, freq: 349.23, num: "G" } 
     ], columns: 2 }
@@ -59,16 +59,17 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 ---
+// --- 2. 안정화 유틸리티 (중간값 필터) ---
 class MedianFilter {
     constructor(size) {
         this.size = size;
         this.buffer = [];
     }
     add(value) {
+        // 급격한 변화(옥타브 튐 등) 방지
         if (this.buffer.length > 0) {
             const last = this.buffer[this.buffer.length - 1];
-            if (Math.abs(last - value) > 300) return; // 필터링 범위 약간 완화
+            if (Math.abs(last - value) > 150) return; // 150센트 이상 차이나면 무시
         }
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
@@ -89,7 +90,7 @@ let analyser = null;
 let mediaStream = null;
 let isRunning = false; 
 let inputSource = null;
-let gainNode = null; // [추가] 마이크 증폭용
+let gainNode = null;
 let biquadFilter = null; 
 let compressor = null;   
 
@@ -97,19 +98,19 @@ const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-const medianFilter = new MedianFilter(5); 
+// 안정화를 위한 필터 (반응속도와 안정성의 균형)
+const medianFilter = new MedianFilter(5);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
-let lastDetectedStringIndex = -1; 
-let noteStabilityCounter = 0;
-const NOTE_CHANGE_THRESHOLD = 5;
+let lastDetectedStringIndex = -1; // 줄 고정(Hysteresis)용 인덱스
 
+// 락킹(완료) 설정
 let isNoteLocked = false;
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 8;  
-const LOCK_TOLERANCE_CENTS = 10; 
-const UNLOCK_THRESHOLD_CENTS = 30; 
+const LOCK_REQUIRED_FRAMES = 8;  // 유지 프레임
+const LOCK_TOLERANCE_CENTS = 8;  // ±8센트 이내면 완료
+const UNLOCK_THRESHOLD_CENTS = 25; // 25센트 벗어나야 풀림
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -244,12 +245,11 @@ function highlightStringBtn(noteName, octave, isLocked) {
     
     btns.forEach(btn => {
         const btnKey = btn.dataset.note + btn.dataset.octave;
-        
         btn.classList.remove('detected', 'locked', 'tuned');
 
         if (tunedStrings.has(btnKey)) {
             btn.classList.add('tuned');
-            return; 
+            return;
         }
 
         if (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave) {
@@ -273,22 +273,23 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 (감도 부스터 추가) ---
+// --- 5. 오디오 처리 (강력한 부스트) ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
     try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
+        
+        // 에코 캔슬레이션 OFF -> 원음 확보
         const constraints = { audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } };
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // [중요] 마이크 증폭 (Gain Node) 추가
-        // 작은 소리(고음 줄)를 강제로 키워서 인식률을 높임
+        // [중요] 마이크 증폭 (5배) -> 작은 소리 감지
         gainNode = audioContext.createGain();
-        gainNode.gain.value = 3.0; // 3배 증폭
+        gainNode.gain.value = 5.0;
 
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50;
@@ -300,7 +301,7 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
 
-        // 연결 순서: Mic -> Gain -> Compressor -> Filter -> Analyser
+        // 연결: Source -> Gain -> Compressor -> Filter -> Analyser
         inputSource.connect(gainNode);
         gainNode.connect(compressor);
         compressor.connect(biquadFilter);
@@ -322,7 +323,7 @@ async function startTuner() {
 function applyInstrumentFilter() {
     if(!biquadFilter) return;
     const instData = instruments[currentInstrument];
-    const maxFreq = instData.range ? instData.range[1] * 2.5 : 2000; 
+    const maxFreq = instData.range ? instData.range[1] * 2.5 : 2500; 
     biquadFilter.frequency.value = maxFreq;
 }
 
@@ -358,13 +359,12 @@ function processAudio() {
     if (!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
+    // RMS 체크 (소음 게이트: 아주 낮게 설정하여 반응성 확보)
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [중요] 소음 게이트 민감도 대폭 상향
-    // 0.015 -> 0.003 (아주 작은 소리도 캐치)
-    if (rms < 0.003) { 
+    if (rms < 0.002) { // 0.002 미만이면 사실상 침묵
         if (!isNoteLocked) {
              if (Math.abs(targetCents) > 1) {
                  targetCents *= 0.9;
@@ -375,22 +375,23 @@ function processAudio() {
     }
 
     const pitch = yinPitchDetection(buf, audioContext.sampleRate);
-    // 확률(Probability)이 90% 이상일 때만 유효 (잡음 방지)
-    if (pitch.probability > 0.9 && pitch.freq !== -1) {
-        updateTuner(pitch.freq);
+    if (pitch !== -1) {
+        updateTuner(pitch);
     }
     requestAnimationFrame(processAudio);
 }
 
-// [YIN 알고리즘 - 확률 기반]
+// [검증된 YIN 알고리즘] - 복잡도 줄이고 표준 구현 사용
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.15;
+    const threshold = 0.10; // 임계값 낮춤 -> 감지력 상승
     const bufferSize = buffer.length;
-    let tauEstimate = -1; 
-    let minVal = 1.0; // 최소값(확률 계산용)
-
+    let tauEstimate = -1;
+    let pitchInHz = -1;
+    
+    // 1. Difference
     const yinBuffer = new Float32Array(bufferSize / 2);
-    yinBuffer[0] = 1; let runningSum = 0;
+    yinBuffer[0] = 1;
+    let runningSum = 0;
     
     for (let tau = 1; tau < yinBuffer.length; tau++) {
         let deltaSum = 0;
@@ -404,15 +405,15 @@ function yinPitchDetection(buffer, sampleRate) {
         else yinBuffer[tau] = 1;
     }
 
+    // 2. Threshold
     for (let tau = 2; tau < yinBuffer.length; tau++) {
-        if (yinBuffer[tau] < minVal) minVal = yinBuffer[tau];
         if (yinBuffer[tau] < threshold) {
             while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
             tauEstimate = tau; break;
         }
     }
 
-    let pitchInHz = -1;
+    // 3. Interpolation
     if (tauEstimate !== -1) {
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -427,13 +428,11 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     const range = instruments[currentInstrument].range || [25, 2000];
-    if (pitchInHz < range[0] || pitchInHz > range[1]) return { freq: -1, probability: 0 };
-
-    // minVal이 작을수록 주기성이 뚜렷함 (즉, 확실한 음)
-    // 1 - minVal = 신뢰도
-    return { freq: pitchInHz, probability: 1 - minVal };
+    if (pitchInHz < range[0] || pitchInHz > range[1]) return -1;
+    return pitchInHz;
 }
 
+// [스마트 줄 감지 + 관성]
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -452,15 +451,19 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
+        // 현재 잡고 있는 줄에 강력한 가중치 (쉽게 안 바뀜)
         if (lastDetectedStringIndex === index) {
-            weight = 0.6; 
+            weight = 0.5; 
         }
 
         let diff = Math.abs(frequency - str.freq);
-        const diffHarmonic = Math.abs(frequency - (str.freq * 2));
-        if (diffHarmonic < 15) { 
-             diff = diffHarmonic / 5; 
-        }
+        
+        // 배음 보정 (옥타브)
+        const diff2 = Math.abs(frequency - (str.freq * 2));
+        if (diff2 < 20) diff = diff2 / 5;
+        
+        const diff3 = Math.abs(frequency - (str.freq * 3));
+        if (diff3 < 20) diff = diff3 / 5;
 
         diff = diff * weight;
 
