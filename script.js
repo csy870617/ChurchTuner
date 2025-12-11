@@ -1,21 +1,80 @@
-// --- 1. 악기 데이터 (배음 방지를 위한 정밀 범위 설정) ---
+// --- 1. 전역 설정 (표준 피치) ---
+const A4_FREQ = 440; // 교회 표준 (피아노와 동일)
+
+// --- 2. 악기 데이터 (440Hz 기준 정밀 주파수) ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "6-String", range: [60, 900], strings: [ { note: "E", octave: 2, freq: 82.41, num: 6 }, { note: "A", octave: 2, freq: 110.00, num: 5 }, { note: "D", octave: 3, freq: 146.83, num: 4 }, { note: "G", octave: 3, freq: 196.00, num: 3 }, { note: "B", octave: 3, freq: 246.94, num: 2 }, { note: "E", octave: 4, freq: 329.63, num: 1 } ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "4-String", range: [30, 400], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
-    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
-    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1000], strings: [ { note: "G", octave: 4, freq: 392.00, num: 4 }, { note: "C", octave: 4, freq: 261.63, num: 3 }, { note: "E", octave: 4, freq: 329.63, num: 2 }, { note: "A", octave: 4, freq: 440.00, num: 1 } ], columns: 2 },
-    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1200], strings: [ { note: "G", octave: 3, freq: 196.00, num: 4 }, { note: "D", octave: 4, freq: 293.66, num: 3 }, { note: "A", octave: 4, freq: 440.00, num: 2 }, { note: "E", octave: 5, freq: 659.25, num: 1 } ], columns: 2 },
-    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 600], strings: [ { note: "C", octave: 2, freq: 65.41, num: 4 }, { note: "G", octave: 2, freq: 98.00, num: 3 }, { note: "D", octave: 3, freq: 146.83, num: 2 }, { note: "A", octave: 3, freq: 220.00, num: 1 } ], columns: 2 },
-    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 300], strings: [ { note: "E", octave: 1, freq: 41.20, num: 4 }, { note: "A", octave: 1, freq: 55.00, num: 3 }, { note: "D", octave: 2, freq: 73.42, num: 2 }, { note: "G", octave: 2, freq: 98.00, num: 1 } ], columns: 2 },
-    flute: { name: "FLUTE", icon: "🎼", detail: "Standard", range: [200, 2000], strings: [ { note: "A", octave: 4, freq: 440.00, num: "A" }, { note: "A#", octave: 4, freq: 466.16, num: "Bb" } ], columns: 2 },
-    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb-Key", range: [100, 1500], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 },
-    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb-Key", range: [100, 1200], strings: [ { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, { note: "A#", octave: 3, freq: 466.16, num: "G" } ], columns: 2 },
-    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb-Key", range: [150, 1200], strings: [ { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, { note: "F", octave: 4, freq: 349.23, num: "G" } ], columns: 2 }
+    // [현악기]
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 900], strings: [ 
+        { note: "E", octave: 2, freq: 82.41, num: 6 }, 
+        { note: "A", octave: 2, freq: 110.00, num: 5 }, 
+        { note: "D", octave: 3, freq: 146.83, num: 4 }, 
+        { note: "G", octave: 3, freq: 196.00, num: 3 }, 
+        { note: "B", octave: 3, freq: 246.94, num: 2 }, 
+        { note: "E", octave: 4, freq: 329.63, num: 1 } 
+    ], columns: 3 },
+    
+    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], strings: [ 
+        { note: "E", octave: 1, freq: 41.20, num: 4 }, 
+        { note: "A", octave: 1, freq: 55.00, num: 3 }, 
+        { note: "D", octave: 2, freq: 73.42, num: 2 }, 
+        { note: "G", octave: 2, freq: 98.00, num: 1 } 
+    ], columns: 2 },
+
+    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal Mode", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
+
+    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G (GCEA)", range: [200, 1000], strings: [ 
+        { note: "G", octave: 4, freq: 392.00, num: 4 }, 
+        { note: "C", octave: 4, freq: 261.63, num: 3 }, 
+        { note: "E", octave: 4, freq: 329.63, num: 2 }, 
+        { note: "A", octave: 4, freq: 440.00, num: 1 } 
+    ], columns: 2 },
+
+    violin: { name: "VIOLIN", icon: "🎻", detail: "GDAE", range: [180, 1200], strings: [ 
+        { note: "G", octave: 3, freq: 196.00, num: 4 }, 
+        { note: "D", octave: 4, freq: 293.66, num: 3 }, 
+        { note: "A", octave: 4, freq: 440.00, num: 2 }, 
+        { note: "E", octave: 5, freq: 659.25, num: 1 } 
+    ], columns: 2 },
+    
+    cello: { name: "CELLO", icon: "🎻", detail: "CGDA", range: [60, 600], strings: [ 
+        { note: "C", octave: 2, freq: 65.41, num: 4 }, 
+        { note: "G", octave: 2, freq: 98.00, num: 3 }, 
+        { note: "D", octave: 3, freq: 146.83, num: 2 }, 
+        { note: "A", octave: 3, freq: 220.00, num: 1 } 
+    ], columns: 2 },
+
+    doublebass: { name: "D.BASS", icon: "🎻", detail: "EADG", range: [30, 300], strings: [ 
+        { note: "E", octave: 1, freq: 41.20, num: 4 }, 
+        { note: "A", octave: 1, freq: 55.00, num: 3 }, 
+        { note: "D", octave: 2, freq: 73.42, num: 2 }, 
+        { note: "G", octave: 2, freq: 98.00, num: 1 } 
+    ], columns: 2 },
+
+    // [이조 악기: 실제 소리(note)와 연주자가 보는 악보(num)가 다름]
+    flute: { name: "FLUTE", icon: "🎼", detail: "C Instrument", range: [200, 2000], strings: [ 
+        { note: "A", octave: 4, freq: 440.00, num: "A" }, 
+        { note: "A#", octave: 4, freq: 466.16, num: "Bb" } 
+    ], columns: 2 },
+    
+    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Instrument", range: [100, 1500], strings: [ 
+        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, // 실제 A#3 -> 악보 C4
+        { note: "F", octave: 4, freq: 349.23, num: "G" }       // 실제 F4 -> 악보 G4
+    ], columns: 2 },
+    
+    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Instrument", range: [100, 1200], strings: [ 
+        { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, // 실제 Eb3 -> 악보 C4
+        { note: "A#", octave: 3, freq: 466.16, num: "G" }      // 실제 Bb3 -> 악보 G4
+    ], columns: 2 },
+    
+    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Instrument", range: [150, 1200], strings: [ 
+        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, // 실제 Bb3 -> 악보 C4
+        { note: "F", octave: 4, freq: 349.23, num: "G" }       // 실제 F4 -> 악보 G4
+    ], columns: 2 }
 };
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (이동 평균) ---
+// --- 3. 유틸리티 (이동 평균 - 바늘 떨림 방지) ---
 class RollingAverage {
     constructor(size) {
         this.size = size;
@@ -24,8 +83,7 @@ class RollingAverage {
     add(value) {
         if (this.buffer.length > 0) {
             const last = this.buffer[this.buffer.length - 1];
-            // 튀는 값(100센트 이상 급격한 변화)은 일시적으로 무시 (필터링)
-            if (Math.abs(last - value) > 100) return; 
+            if (Math.abs(last - value) > 100) return; // 튀는 값 필터링
         }
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
@@ -38,7 +96,7 @@ class RollingAverage {
     reset() { this.buffer = []; }
 }
 
-// --- 3. 전역 변수 ---
+// --- 4. 전역 변수 ---
 let currentInstrument = 'guitar';
 let currentDynamicInst = null; 
 let audioContext = null; 
@@ -49,30 +107,27 @@ let inputSource = null;
 let biquadFilter = null; 
 let compressor = null;   
 
-const BUF_SIZE = 4096; // 버퍼 사이즈 4096 (저음 정확도 향상)
+const BUF_SIZE = 4096; 
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
-
-// [보정] 이동 평균 필터 (12개)
 const smoother = new RollingAverage(12);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
+let potentialNote = "";          
 let noteStabilityCounter = 0;    
+const NOTE_CHANGE_THRESHOLD = 3; 
 
-// [히든 기술 1] 줄 고정 관성 (String Hysteresis)
-// 한번 감지된 줄은 다른 줄로 바뀔 때까지 '가산점'을 주어 쉽게 바뀌지 않게 함
-let lastDetectedStringIndex = -1; // 감지된 줄의 인덱스
+// 지능형 줄 감지 변수
+let lastDetectedStringIndex = -1; 
 
-// 락킹(고정) 설정
+// 락킹(고정) 변수
 let isNoteLocked = false;
 let lockedNote = "";
 let lockDuration = 0; 
-
-// [사용자 편의성] 
-const LOCK_REQUIRED_FRAMES = 8;  // 고정까지 필요한 프레임 수
-const LOCK_TOLERANCE_CENTS = 10; // ±10센트면 OK (관대함)
-const UNLOCK_THRESHOLD_CENTS = 30; // 30센트 벗어나야 풀림
+const LOCK_REQUIRED_FRAMES = 8;  
+const LOCK_TOLERANCE_CENTS = 10; 
+const UNLOCK_THRESHOLD_CENTS = 30; 
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -97,7 +152,7 @@ const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 const dynDetail = document.getElementById('dyn-detail');
 
-// --- 4. 초기화 ---
+// --- 5. 초기화 및 함수 ---
 function init() {
     loadSavedSettings();
     instCards.forEach(card => {
@@ -238,7 +293,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 ---
+// --- 6. 오디오 엔진 ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
@@ -267,7 +322,7 @@ async function startTuner() {
 
         isRunning = true;
         smoother.reset();
-        lastDetectedStringIndex = -1; // 초기화
+        lastDetectedStringIndex = -1;
         
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
@@ -279,6 +334,7 @@ async function startTuner() {
 function applyInstrumentFilter() {
     if(!biquadFilter) return;
     const instData = instruments[currentInstrument];
+    // 최대 주파수 제한 (잡음 차단)
     const maxFreq = instData.range ? instData.range[1] * 2.5 : 2000; 
     biquadFilter.frequency.value = maxFreq;
 }
@@ -315,15 +371,15 @@ function processAudio() {
     if (!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
-    // RMS(볼륨) 체크 - 소음 게이트
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
+    // 소음 게이트
     if (rms < 0.015) { 
         if (!isNoteLocked) {
-             // 소리가 작아지면 바늘을 천천히 중앙으로
-             if (Math.abs(targetCents) > 1) {
+             if(noteStabilityCounter > 0) noteStabilityCounter--;
+             else if (Math.abs(targetCents) > 1) {
                  targetCents *= 0.92; 
              }
         }
@@ -336,7 +392,6 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
-// [히든 기술 2] 강화된 YIN 알고리즘
 function yinPitchDetection(buffer, sampleRate) {
     const threshold = 0.15;
     const bufferSize = buffer.length;
@@ -344,7 +399,6 @@ function yinPitchDetection(buffer, sampleRate) {
     const yinBuffer = new Float32Array(bufferSize / 2);
     yinBuffer[0] = 1; let runningSum = 0;
     
-    // 1. Difference Function
     for (let tau = 1; tau < yinBuffer.length; tau++) {
         let deltaSum = 0;
         for (let i = 0; i < yinBuffer.length; i++) {
@@ -357,7 +411,6 @@ function yinPitchDetection(buffer, sampleRate) {
         else yinBuffer[tau] = 1;
     }
 
-    // 2. Absolute Threshold
     for (let tau = 2; tau < yinBuffer.length; tau++) {
         if (yinBuffer[tau] < threshold) {
             while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
@@ -365,7 +418,6 @@ function yinPitchDetection(buffer, sampleRate) {
         }
     }
 
-    // 3. Parabolic Interpolation
     if (tauEstimate !== -1) {
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -384,16 +436,16 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [히든 기술 1] 지능형 줄 감지 + 관성(Hysteresis)
+// [핵심] 440Hz 기준 지능형 줄 감지 로직
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
     if (instData.isChromatic) {
-        const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
+        const noteNum = 12 * (Math.log(frequency / A4_FREQ) / Math.log(2));
         const noteRound = Math.round(noteNum) + 69;
         const noteName = noteStrings[noteRound % 12];
         const octave = Math.floor(noteRound / 12) - 1;
-        const perfectFreq = 440 * Math.pow(2, (noteRound - 69) / 12);
+        const perfectFreq = A4_FREQ * Math.pow(2, (noteRound - 69) / 12);
         return { note: noteName, octave: octave, targetFreq: perfectFreq, index: -1 };
     }
 
@@ -402,25 +454,21 @@ function findClosestString(frequency) {
     let closestIndex = -1;
 
     instData.strings.forEach((str, index) => {
-        // [관성 로직] 현재 감지된 줄이라면 거리에 가중치(0.7배)를 주어
-        // 웬만하면 다른 줄로 튀지 않게 함
         let weight = 1.0;
+        // 현재 감지된 줄에 관성 부여 (쉽게 안바뀜)
         if (lastDetectedStringIndex === index) {
-            weight = 0.7; // 현재 줄은 30% 더 가깝게 인식 (우대)
+            weight = 0.7; 
         }
 
-        // 기본 거리 계산
         let diff = Math.abs(frequency - str.freq);
         
-        // [배음 방지] 2배음(한 옥타브 위) 체크
-        // 입력된 주파수가 목표 줄의 2배수와 비슷하다면? -> 해당 줄의 배음일 확률 높음
-        // 예: 6번줄(82Hz)을 쳤는데 164Hz가 감지됨 -> 164Hz인 줄보다 82Hz인 줄을 우선시
+        // 배음(옥타브 위) 인식 보정
         const diffHarmonic = Math.abs(frequency - (str.freq * 2));
-        if (diffHarmonic < 15) { // 배음과 15Hz 이내 차이라면
-             diff = diffHarmonic / 5; // 배음이면 강력하게 해당 줄로 끌어당김
+        if (diffHarmonic < 15) { 
+             diff = diffHarmonic / 5; // 배음이면 강력하게 원음으로 끌어당김
         }
 
-        diff = diff * weight; // 가중치 적용
+        diff = diff * weight;
 
         if (diff < minDiff) {
             minDiff = diff;
@@ -429,7 +477,6 @@ function findClosestString(frequency) {
         }
     });
 
-    // 최종 선택된 줄 저장 (다음 프레임의 관성을 위해)
     if (closestIndex !== -1) {
         lastDetectedStringIndex = closestIndex;
     }
@@ -445,46 +492,39 @@ function findClosestString(frequency) {
 function updateTuner(frequency) {
     const match = findClosestString(frequency);
     
-    // Cents 계산
+    // Cents 계산 (440Hz 기준)
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
-    // 배음 보정 (±1200은 같은 음)
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
 
-    // 즉시 업데이트 (딜레이 제거)
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
     processCentsAndLocking(match.note, match.octave, rawCents, frequency);
 }
 
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
-    // 이동 평균 필터로 떨림만 부드럽게 잡음
     smoother.add(rawCents);
     const smoothCents = smoother.getAverage();
 
     if (isNoteLocked) {
-        // 락킹 해제: ±30센트 이상 튀면 해제
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            targetCents = 0; // 락킹 중엔 중앙 고정
+            targetCents = 0; 
             guideMsg.textContent = "PERFECT";
         }
     } else {
         targetCents = smoothCents;
-        // 락킹 진입: ±10센트 이내면 카운트
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 lockedNote = noteName;
-                
                 tunedStrings.add(noteName + octave);
                 highlightStringBtn(noteName, octave, true);
-                
                 playSuccessSound();
                 targetCents = 0; 
             }
@@ -492,7 +532,6 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
             lockDuration = 0; 
         }
     }
-
     renderTextUI(noteName, octave, Math.round(targetCents), frequency, isNoteLocked);
 }
 
