@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CHURCH TUNER ULTIMATE</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CHURCH TUNER PRO</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
@@ -11,12 +11,12 @@
 <body>
     <div class="bg-fx"></div>
 
-    <div class="container" id="app-container">
+    <div class="container">
         <header>
             <div class="header-badge">
                 <div class="status-indicator" id="status-dot"></div>
                 <h1>CHURCH TUNER</h1>
-                <span class="version">ULTIMATE</span>
+                <span class="version">PRO</span>
             </div>
         </header>
 
@@ -50,7 +50,7 @@
         <main>
             <div class="tuner-centerpiece">
                 <div class="mode-badge" id="mode-badge">AUTO MODE</div>
-                <div class="guide-message" id="guide-msg">화면을 터치하여 시작</div>
+                <div class="guide-message" id="guide-msg">READY</div>
                 
                 <div class="visualizer-ring">
                     <div class="ring-track"></div>
@@ -70,11 +70,18 @@
 
             <div class="string-control-panel">
                  <div class="panel-header">
-                     <p class="section-label">// DETECTED STRING</p>
+                     <p class="section-label">// STRING STATUS</p>
+                     <button id="reset-mode-btn" class="hidden">RESET</button>
                  </div>
                 <div class="string-selector" id="string-container"></div>
             </div>
         </main>
+
+        <footer>
+            <button id="start-btn">
+                <span class="btn-text">ACTIVATE MIC</span>
+            </button>
+        </footer>
     </div>
 
     <script src="script.js"></script>
