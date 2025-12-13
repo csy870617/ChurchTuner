@@ -1,618 +1,589 @@
-//
-// --- 1. 악기 데이터 (440Hz 표준) ---
-const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], strings: [ 
-        { note: "E", octave: 2, freq: 82.41, num: 6 }, 
-        { note: "A", octave: 2, freq: 110.00, num: 5 }, 
-        { note: "D", octave: 3, freq: 146.83, num: 4 }, 
-        { note: "G", octave: 3, freq: 196.00, num: 3 }, 
-        { note: "B", octave: 3, freq: 246.94, num: 2 }, 
-        { note: "E", octave: 4, freq: 329.63, num: 1 } 
-    ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], strings: [ 
-        { note: "E", octave: 1, freq: 41.20, num: 4 }, 
-        { note: "A", octave: 1, freq: 55.00, num: 3 }, 
-        { note: "D", octave: 2, freq: 73.42, num: 2 }, 
-        { note: "G", octave: 2, freq: 98.00, num: 1 } 
-    ], columns: 2 },
-    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal", range: [20, 3000], isChromatic: true, strings: [], columns: 1 },
-    ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1000], strings: [ 
-        { note: "G", octave: 4, freq: 392.00, num: 4 }, 
-        { note: "C", octave: 4, freq: 261.63, num: 3 }, 
-        { note: "E", octave: 4, freq: 329.63, num: 2 }, 
-        { note: "A", octave: 4, freq: 440.00, num: 1 } 
-    ], columns: 2 },
-    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1200], strings: [ 
-        { note: "G", octave: 3, freq: 196.00, num: 4 }, 
-        { note: "D", octave: 4, freq: 293.66, num: 3 }, 
-        { note: "A", octave: 4, freq: 440.00, num: 2 }, 
-        { note: "E", octave: 5, freq: 659.25, num: 1 } 
-    ], columns: 2 },
-    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 600], strings: [ 
-        { note: "C", octave: 2, freq: 65.41, num: 4 }, 
-        { note: "G", octave: 2, freq: 98.00, num: 3 }, 
-        { note: "D", octave: 3, freq: 146.83, num: 2 }, 
-        { note: "A", octave: 3, freq: 220.00, num: 1 } 
-    ], columns: 2 },
-    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 300], strings: [ 
-        { note: "E", octave: 1, freq: 41.20, num: 4 }, 
-        { note: "A", octave: 1, freq: 55.00, num: 3 }, 
-        { note: "D", octave: 2, freq: 73.42, num: 2 }, 
-        { note: "G", octave: 2, freq: 98.00, num: 1 } 
-    ], columns: 2 },
-    flute: { name: "FLUTE", icon: "🎼", detail: "C Inst.", range: [200, 2000], strings: [ 
-        { note: "A", octave: 4, freq: 440.00, num: "A" }, 
-        { note: "A#", octave: 4, freq: 466.16, num: "Bb" } 
-    ], columns: 2 },
-    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Inst.", range: [100, 1500], strings: [ 
-        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, 
-        { note: "F", octave: 4, freq: 349.23, num: "G" } 
-    ], columns: 2 },
-    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Inst.", range: [100, 1200], strings: [ 
-        { note: "D#", octave: 3, freq: 311.13, num: "Low C" }, 
-        { note: "A#", octave: 3, freq: 466.16, num: "G" } 
-    ], columns: 2 },
-    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", range: [150, 1200], strings: [ 
-        { note: "A#", octave: 3, freq: 233.08, num: "Low C" }, 
-        { note: "F", octave: 4, freq: 349.23, num: "G" } 
-    ], columns: 2 }
-};
+// 0. 인앱 브라우저 탈출
+(function() {
+    const userAgent = navigator.userAgent.toLowerCase();
+    const targetUrl = location.href;
+    if (userAgent.match(/kakaotalk|line|instagram|facebook/i)) {
+        if (userAgent.match(/android/i)) {
+            location.href = 'intent://' + targetUrl.replace(/https?:\/\//i, '') + '#Intent;scheme=https;package=com.android.chrome;end';
+        } else if (userAgent.match(/iphone|ipad|ipod/i)) {
+            console.log('아이폰 인앱 브라우저 감지');
+        }
+    }
+})();
 
-const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+// 유튜브 API 변수
+let player;
+let isPlayerReady = false;
+let pendingPlay = null;
 
-// --- 2. 안정화 유틸리티 (중간값 필터) ---
-class MedianFilter {
-    constructor(size) {
-        this.size = size;
-        this.buffer = [];
-    }
-    add(value) {
-        this.buffer.push(value);
-        if (this.buffer.length > this.size) this.buffer.shift();
-    }
-    getMedian() {
-        if (this.buffer.length === 0) return 0;
-        const sorted = [...this.buffer].sort((a, b) => a - b);
-        return sorted[Math.floor(sorted.length / 2)];
-    }
-    reset() { this.buffer = []; }
+function onYouTubeIframeAPIReady() {
+    // [핵심] 로그인 정보 연동을 위해 도메인을 명확히 지정
+    const originUrl = window.location.origin;
+    
+    player = new YT.Player('youtube-player', {
+        height: '100%',
+        width: '100%',
+        host: 'https://www.youtube.com', // 표준 호스트 강제
+        playerVars: {
+            'playsinline': 1,
+            'rel': 0,
+            'modestbranding': 1,
+            'controls': 1,
+            'origin': originUrl, // 출처 명시 (필수)
+            'widget_referrer': originUrl, // 리퍼러 명시 (보안 강화)
+            'enablejsapi': 1,
+            'autoplay': 0,
+            'disablekb': 1
+        },
+        events: {
+            'onReady': onPlayerReady,
+            'onStateChange': onPlayerStateChange
+        }
+    });
 }
 
-// --- 3. 전역 변수 ---
-let currentInstrument = 'guitar';
-let currentDynamicInst = null; 
-let audioContext = null; 
-let analyser = null; 
-let mediaStream = null;
-let isRunning = false; 
-let inputSource = null;
+function onPlayerReady(event) {
+    isPlayerReady = true;
+    
+    // iframe에 쿠키 접근 권한 속성 추가 시도
+    const iframe = document.getElementById('youtube-player');
+    if (iframe) {
+        // storage-access 권한 명시
+        iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+    }
 
-// [필터 강화]
-let lowPassFilter = null; 
-let highPassFilter = null; // 저음 노이즈 제거용
-let compressor = null;   
+    if (pendingPlay) {
+        playRandomVideo(pendingPlay.category, pendingPlay.title);
+        pendingPlay = null; 
+    }
+}
 
-const BUF_SIZE = 4096;
-const buf = new Float32Array(BUF_SIZE);
-const tunedStrings = new Set(); 
+function onPlayerStateChange(event) {
+    const playPauseBtn = document.getElementById('mini-play-pause');
+    if (playPauseBtn) {
+        if (event.data == YT.PlayerState.PLAYING) {
+            playPauseBtn.innerText = "⏸";
+        } else {
+            playPauseBtn.innerText = "▶";
+        }
+    }
+}
 
-const medianFilter = new MedianFilter(5);
+document.addEventListener('DOMContentLoaded', () => {
+    
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').then(reg => {
+            reg.addEventListener('updatefound', () => {
+                const newWorker = reg.installing;
+                newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                        window.location.reload();
+                    }
+                });
+            });
+        });
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            window.location.reload();
+        });
+    }
 
-let currentDisplayedNote = "--"; 
-let currentDisplayedOctave = 0;
-let lastDetectedStringIndex = -1; 
+    try { if (!Kakao.isInitialized()) Kakao.init('b5c055c0651a6fce6f463abd18a9bdc7'); } catch (e) {}
 
-// [락킹 조건 강화]
-let isNoteLocked = false;
-let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 12; // 프레임 수 증가 (안정성 확보)
-const LOCK_TOLERANCE_CENTS = 5;  // 오차 범위 축소 (정확도 확보 ±5)
-const UNLOCK_THRESHOLD_CENTS = 25; 
+    // 앱 내 브라우저 로직
+    const internalBrowser = document.getElementById('internal-browser');
+    const browserContentArea = document.getElementById('browser-content-area');
+    const browserCloseBtn = document.getElementById('browser-close-btn');
 
-let displayCents = 0; 
-let targetCents = 0;
+    function openInternalBrowser(url) {
+        if (!internalBrowser || !browserContentArea) {
+            window.open(url, '_blank');
+            return;
+        }
 
-// DOM Elements
-const startBtn = document.getElementById('start-btn');
-const btnText = startBtn.querySelector('.btn-text');
-const noteNameEl = document.getElementById('note-name');
-const octaveEl = document.getElementById('octave');
-const freqEl = document.getElementById('frequency');
-const centsEl = document.getElementById('cents');
-const tuningIndicator = document.getElementById('tuning-indicator');
-const statusDot = document.getElementById('status-dot');
-const guideMsg = document.getElementById('guide-msg');
-const stringContainer = document.getElementById('string-container');
-const instCards = document.querySelectorAll('.inst-card');
-const dynamicCard = document.getElementById('dynamic-inst-card');
-const modal = document.getElementById('inst-modal');
-const modalList = document.getElementById('modal-list');
-const closeModalBtn = document.getElementById('close-modal');
-const dynIcon = document.getElementById('dyn-icon');
-const dynName = document.getElementById('dyn-name');
-const dynDetail = document.getElementById('dyn-detail');
+        browserContentArea.innerHTML = '';
 
-// --- 4. 초기화 ---
-function init() {
-    loadSavedSettings();
-    instCards.forEach(card => {
-        card.addEventListener('click', (e) => {
-            const type = card.dataset.type;
-            if (type === 'more') {
-                if (currentDynamicInst && card.classList.contains('active')) openModal();
-                else if (currentDynamicInst) activateInstrument(currentDynamicInst, card);
-                else openModal();
+        const newIframe = document.createElement('iframe');
+        newIframe.id = 'browser-frame';
+        newIframe.src = url;
+        newIframe.frameBorder = '0';
+        newIframe.style.width = '100%';
+        newIframe.style.height = '100%';
+        newIframe.style.background = '#fff';
+
+        browserContentArea.appendChild(newIframe);
+        internalBrowser.classList.add('show');
+        
+        history.pushState({ browserOpen: true }, null, "");
+    }
+
+    function closeInternalBrowser() {
+        if (internalBrowser && internalBrowser.classList.contains('show')) {
+            internalBrowser.classList.remove('show');
+            setTimeout(() => { 
+                if(browserContentArea) browserContentArea.innerHTML = ''; 
+            }, 300);
+            
+            if (history.state && history.state.browserOpen) {
+                history.back();
+            }
+        }
+    }
+
+    if (browserCloseBtn) {
+        browserCloseBtn.onclick = () => {
+            if (internalBrowser.classList.contains('show')) {
+                 internalBrowser.classList.remove('show');
+                 setTimeout(() => { if(browserContentArea) browserContentArea.innerHTML = ''; }, 300);
+                 if (history.state && history.state.browserOpen) {
+                     history.back();
+                 }
+            }
+        };
+    }
+
+    // 순서 변경
+    const listContainer = document.getElementById('main-list');
+    let isDragging = false; 
+
+    const savedOrder = JSON.parse(localStorage.getItem('menuOrder'));
+    if (savedOrder) {
+        const currentCards = Array.from(listContainer.children);
+        const cardMap = {};
+        currentCards.forEach(card => cardMap[card.id] = card);
+        savedOrder.forEach(id => {
+            if (cardMap[id]) listContainer.appendChild(cardMap[id]);
+        });
+    }
+
+    new Sortable(listContainer, {
+        animation: 150,
+        delay: 200, 
+        delayOnTouchOnly: true, 
+        touchStartThreshold: 5, 
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        onStart: function() { isDragging = true; },
+        onEnd: function (evt) {
+            setTimeout(() => { isDragging = false; }, 100);
+            const order = [];
+            const cards = listContainer.querySelectorAll('.list-card');
+            cards.forEach(card => order.push(card.id));
+            localStorage.setItem('menuOrder', JSON.stringify(order));
+        }
+    });
+
+    const viewListBtn = document.getElementById('view-list');
+    const viewGridBtn = document.getElementById('view-grid');
+    const shareTitle = document.querySelector('#card-share .text-box h3');
+
+    const setViewMode = (mode) => {
+        if (mode === 'grid') {
+            listContainer.classList.add('grid-view');
+            viewGridBtn.classList.add('active');
+            viewListBtn.classList.remove('active');
+            if(shareTitle) shareTitle.innerText = '친구 초대';
+        } else {
+            listContainer.classList.remove('grid-view');
+            viewListBtn.classList.add('active');
+            viewGridBtn.classList.remove('active');
+            if(shareTitle) shareTitle.innerText = '함께 성장할 친구 초대';
+        }
+        localStorage.setItem('viewMode', mode);
+    };
+    const savedViewMode = localStorage.getItem('viewMode') || 'list';
+    setViewMode(savedViewMode);
+    
+    if (viewListBtn) viewListBtn.onclick = () => setViewMode('list');
+    if (viewGridBtn) viewGridBtn.onclick = () => setViewMode('grid');
+
+
+    // 모달 관리
+    const modalOverlay = document.getElementById('modal-overlay');
+    const draggablePlayer = document.getElementById('draggable-player'); 
+    const bibleModal = document.getElementById('bible-modal');
+    const closeBibleModalBtn = document.getElementById('close-bible-modal');
+    const iosModal = document.getElementById('ios-modal');
+    const settingsModal = document.getElementById('settings-modal');
+    const ccmMenuView = document.getElementById('ccm-menu-view');
+    const ccmPlayerView = document.getElementById('ccm-player-view');
+    const backToMenuBtn = document.getElementById('back-to-menu-btn');
+    const shufflePlayBtn = document.getElementById('shuffle-play-btn');
+    const floatModeBtn = document.getElementById('float-mode-btn'); 
+    const maximizeOverlay = document.getElementById('maximize-overlay'); 
+    const miniPlayPauseBtn = document.getElementById('mini-play-pause');
+    const miniCloseBtn = document.getElementById('mini-close');
+
+    const playerTitle = document.getElementById('player-title');
+    const ccmBtn = document.getElementById('ccm-btn');
+    const settingsBtn = document.getElementById('settings-btn');
+    const closeModalBtn = document.getElementById('close-modal');
+    const closeIosModalBtn = document.getElementById('close-ios-modal');
+    const closeSettingsBtn = document.getElementById('close-settings-modal');
+    const moodBtns = document.querySelectorAll('.mood-btn');
+    let currentModal = null; 
+    let wakeLock = null;
+    let currentCategory = null; 
+    let lastVideoUrl = null; 
+
+    // 드래그 로직
+    let isPlayerDragging = false;
+    let shiftX, shiftY;
+    let dragStartTime = 0;
+    let dragStartPos = { x: 0, y: 0 };
+
+    const maximizePlayer = (e) => {
+         if (e) {
+             e.preventDefault();
+             e.stopPropagation();
+             e.stopImmediatePropagation(); 
+         }
+
+         modalOverlay.classList.remove('mini-mode');
+         if(maximizeOverlay) maximizeOverlay.style.display = 'none';
+         
+         ccmMenuView.style.display = 'none';
+         ccmPlayerView.style.display = 'block';
+
+         draggablePlayer.style.top = '';
+         draggablePlayer.style.left = '';
+         draggablePlayer.style.bottom = '20px';
+         draggablePlayer.style.right = '20px';
+    };
+
+    const startPlayerDrag = (e) => {
+        if (!modalOverlay.classList.contains('mini-mode')) return;
+        if (e.target.classList.contains('mini-btn')) return;
+
+        isPlayerDragging = true;
+        dragStartTime = new Date().getTime();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        dragStartPos = { x: clientX, y: clientY };
+        const rect = draggablePlayer.getBoundingClientRect();
+        shiftX = clientX - rect.left;
+        shiftY = clientY - rect.top;
+        draggablePlayer.style.transition = 'none';
+        draggablePlayer.style.bottom = 'auto';
+        draggablePlayer.style.right = 'auto';
+        draggablePlayer.style.left = rect.left + 'px';
+        draggablePlayer.style.top = rect.top + 'px';
+    };
+
+    const onPlayerDrag = (e) => {
+        if (!isPlayerDragging) return;
+        e.preventDefault(); 
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        draggablePlayer.style.left = (clientX - shiftX) + 'px';
+        draggablePlayer.style.top = (clientY - shiftY) + 'px';
+    };
+
+    const endPlayerDrag = (e) => {
+        if (!isPlayerDragging) return;
+        isPlayerDragging = false;
+        
+        const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+        const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+        const distance = Math.sqrt(Math.pow(clientX - dragStartPos.x, 2) + Math.pow(clientY - dragStartPos.y, 2));
+
+        if (distance < 10) {
+             maximizePlayer(e);
+        }
+    };
+
+    if (draggablePlayer) {
+        draggablePlayer.addEventListener('mousedown', startPlayerDrag);
+        draggablePlayer.addEventListener('touchstart', startPlayerDrag, {passive: false});
+        document.addEventListener('mousemove', onPlayerDrag);
+        document.addEventListener('touchmove', onPlayerDrag, {passive: false});
+        document.addEventListener('mouseup', endPlayerDrag);
+        document.addEventListener('touchend', endPlayerDrag);
+    }
+
+    if (maximizeOverlay) {
+        maximizeOverlay.onclick = maximizePlayer;
+    }
+
+    if (miniPlayPauseBtn) {
+        miniPlayPauseBtn.onclick = (e) => {
+            e.stopPropagation(); 
+            if (player && typeof player.getPlayerState === 'function') {
+                const state = player.getPlayerState();
+                if (state === YT.PlayerState.PLAYING) player.pauseVideo();
+                else player.playVideo();
+            }
+        };
+    }
+
+    if (miniCloseBtn) {
+        miniCloseBtn.onclick = (e) => {
+            e.stopPropagation();
+            closeModal(modalOverlay);
+        };
+    }
+
+    const requestWakeLock = async () => { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} };
+    const releaseWakeLock = async () => { try { if (wakeLock) { await wakeLock.release(); wakeLock = null; } } catch (e) {} };
+
+    const openModal = (modal) => {
+        if (!modal) return;
+        currentModal = modal;
+        modal.style.display = 'flex';
+        requestAnimationFrame(() => modal.classList.add('show'));
+        history.pushState({ modalOpen: true }, null, ""); 
+    };
+
+    const closeModal = (modal) => {
+        if (!modal) return;
+        
+        modal.classList.remove('mini-mode');
+        if (maximizeOverlay) maximizeOverlay.style.display = 'none';
+        
+        if(modal === modalOverlay && draggablePlayer) {
+            draggablePlayer.style.top = '';
+            draggablePlayer.style.left = '';
+            draggablePlayer.style.bottom = '20px';
+            draggablePlayer.style.right = '20px';
+        }
+
+        if (modal === modalOverlay) {
+            if(player && typeof player.stopVideo === 'function') {
+                player.stopVideo();
+            }
+            releaseWakeLock();
+            setTimeout(() => { if(ccmPlayerView) ccmPlayerView.style.display = 'none'; if(ccmMenuView) ccmMenuView.style.display = 'block'; }, 300);
+        }
+        
+        if (modal.id === 'internal-browser') {
+            closeInternalBrowser();
+            return;
+        }
+
+        modal.classList.remove('show');
+        setTimeout(() => { modal.style.display = 'none'; if (currentModal === modal) currentModal = null; }, 300);
+    };
+
+    const handleCloseBtnClick = (modal) => { closeModal(modal); if (history.state && (history.state.modalOpen || history.state.browserOpen)) history.back(); };
+    
+    // 뒤로가기 로직
+    window.addEventListener('popstate', () => {
+        if (internalBrowser.classList.contains('show')) {
+            internalBrowser.classList.remove('show');
+            if(browserContentArea) browserContentArea.innerHTML = '';
+            return;
+        }
+        
+        if (currentModal) {
+            if (currentModal === modalOverlay && modalOverlay.classList.contains('mini-mode')) {
+                currentModal = null; 
                 return;
             }
-            activateInstrument(type, card);
-        });
-    });
-    startBtn.addEventListener('click', toggleTuner);
-    closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
-    generateModalList();
-    requestAnimationFrame(updateVisualizer);
-}
-
-function loadSavedSettings() {
-    const savedCurrent = localStorage.getItem('churchTuner_current');
-    const savedDynamic = localStorage.getItem('churchTuner_dynamic');
-    if (savedDynamic && instruments[savedDynamic]) {
-        currentDynamicInst = savedDynamic;
-        const inst = instruments[savedDynamic];
-        dynIcon.textContent = inst.icon;
-        dynName.textContent = inst.name;
-        dynDetail.textContent = inst.detail;
-    }
-    if (savedCurrent && instruments[savedCurrent]) {
-        if (savedCurrent === 'guitar' || savedCurrent === 'bass') {
-            const targetCard = document.querySelector(`.inst-card[data-type="${savedCurrent}"]`);
-            activateInstrument(savedCurrent, targetCard);
-        } else {
-            activateInstrument(savedCurrent, dynamicCard);
-        }
-    } else {
-        const guitarCard = document.querySelector('.inst-card[data-type="guitar"]');
-        activateInstrument('guitar', guitarCard);
-    }
-}
-
-function activateInstrument(instKey, cardElement) {
-    instCards.forEach(c => c.classList.remove('active'));
-    cardElement.classList.add('active');
-    currentInstrument = instKey;
-    localStorage.setItem('churchTuner_current', instKey);
-    if (instKey !== 'guitar' && instKey !== 'bass') {
-        localStorage.setItem('churchTuner_dynamic', instKey);
-    }
-    tunedStrings.clear();
-    
-    if(isRunning) applyInstrumentFilter();
-    resetUI(false);
-    renderStringButtons(currentInstrument);
-}
-
-function generateModalList() {
-    modalList.innerHTML = '';
-    Object.keys(instruments).forEach(key => {
-        if (key === 'guitar' || key === 'bass') return;
-        const inst = instruments[key];
-        const div = document.createElement('div');
-        div.className = 'inst-option';
-        div.innerHTML = `<div class="opt-icon">${inst.icon}</div><div class="opt-info"><span class="opt-name">${inst.name}</span><span class="opt-detail">${inst.detail}</span></div>`;
-        div.addEventListener('click', () => selectDynamicInstrument(key));
-        modalList.appendChild(div);
-    });
-}
-
-function openModal() { modal.classList.remove('hidden'); }
-function selectDynamicInstrument(key) {
-    const inst = instruments[key];
-    currentDynamicInst = key;
-    dynIcon.textContent = inst.icon;
-    dynName.textContent = inst.name;
-    dynDetail.textContent = inst.detail;
-    localStorage.setItem('churchTuner_dynamic', key);
-    modal.classList.add('hidden');
-    activateInstrument(key, dynamicCard);
-}
-
-function renderStringButtons(instType) {
-    const data = instruments[instType];
-    stringContainer.innerHTML = ''; 
-    if (data.isChromatic) {
-        stringContainer.style.display = 'flex';
-        stringContainer.style.justifyContent = 'center';
-        stringContainer.innerHTML = '<div class="chromatic-msg">ALL NOTES ACTIVE</div>';
-        return;
-    }
-    stringContainer.style.display = 'grid';
-    stringContainer.style.gridTemplateColumns = `repeat(${data.columns}, 1fr)`;
-    data.strings.forEach(str => {
-        const btn = document.createElement('button');
-        btn.className = 'string-btn';
-        btn.dataset.note = str.note; btn.dataset.octave = str.octave;
-        btn.innerHTML = `<span class="str-num">${str.num}</span>${str.note}`;
-        stringContainer.appendChild(btn);
-    });
-}
-
-function highlightStringBtn(noteName, octave, isLocked) {
-    if (instruments[currentInstrument].isChromatic) return;
-    const btns = document.querySelectorAll('.string-btn');
-    
-    btns.forEach(btn => {
-        const btnKey = btn.dataset.note + btn.dataset.octave;
-        const isAlreadyTuned = tunedStrings.has(btnKey);
-        const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
-
-        btn.classList.remove('detected', 'locked', 'tuned');
-
-        if (isAlreadyTuned) {
-            btn.classList.add('tuned');
-            // 이미 튜닝된 줄을 다시 칠 때 강조 효과
-            if (isCurrentDetected && isLocked) {
-                btn.style.transform = "scale(1.05)";
-                btn.style.boxShadow = "0 0 25px var(--accent-green)";
-            } else {
-                btn.style.transform = "scale(1)";
-            }
-        } 
-        
-        else if (isCurrentDetected) {
-            if (isLocked) {
-                btn.classList.add('tuned');
-            } else {
-                btn.classList.add('detected');
-            }
-        }
-    });
-}
-
-function playSuccessSound() {
-    if (!audioContext) return;
-    const t = audioContext.currentTime;
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t); 
-    gain.gain.setValueAtTime(0.1, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-    osc.connect(gain); gain.connect(audioContext.destination);
-    osc.start(); osc.stop(t + 0.4);
-}
-
-// --- 5. 오디오 처리 (정확도 향상: High Pass Filter 추가) ---
-function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
-
-async function startTuner() {
-    try {
-        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioContext.state === 'suspended') await audioContext.resume();
-        
-        const constraints = { 
-            audio: { 
-                echoCancellation: false, 
-                autoGainControl: false, 
-                noiseSuppression: false 
-            } 
-        };
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        inputSource = audioContext.createMediaStreamSource(mediaStream);
-        
-        // 1. 컴프레서 (입력 레벨 평탄화)
-        compressor = audioContext.createDynamicsCompressor();
-        compressor.threshold.value = -50;
-        compressor.ratio.value = 12;
-
-        // 2. High-Pass Filter (추가: 30Hz 이하 웅웅거림 제거 - 정확도 핵심)
-        highPassFilter = audioContext.createBiquadFilter();
-        highPassFilter.type = "highpass";
-        highPassFilter.frequency.value = 30; 
-
-        // 3. Low-Pass Filter (고음 노이즈 제거)
-        lowPassFilter = audioContext.createBiquadFilter();
-        lowPassFilter.type = "lowpass";
-        
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = BUF_SIZE;
-
-        // 연결: Input -> Compressor -> HPF -> LPF -> Analyser
-        inputSource.connect(compressor);
-        compressor.connect(highPassFilter);
-        highPassFilter.connect(lowPassFilter);
-        lowPassFilter.connect(analyser);
-
-        applyInstrumentFilter();
-
-        isRunning = true;
-        medianFilter.reset();
-        lastDetectedStringIndex = -1;
-        
-        startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
-        statusDot.classList.add('active');
-        guideMsg.textContent = "PLAY A STRING...";
-        processAudio();
-    } catch (err) { console.error(err); alert("마이크 권한이 필요합니다."); }
-}
-
-function applyInstrumentFilter() {
-    if(!lowPassFilter) return;
-    const instData = instruments[currentInstrument];
-    const maxFreq = instData.range ? instData.range[1] : 1000; 
-    lowPassFilter.frequency.value = maxFreq;
-}
-
-function stopTuner() {
-    isRunning = false;
-    startBtn.classList.remove('stop'); btnText.textContent = "ACTIVATE MIC";
-    statusDot.classList.remove('active');
-    resetUI(true); 
-    guideMsg.textContent = "READY TO TUNE"; guideMsg.style.color = "var(--text-secondary)";
-    if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
-}
-
-function resetUI(keepTuned = false) {
-    displayCents = 0; targetCents = 0;
-    currentDisplayedNote = "--"; 
-    isNoteLocked = false; lockDuration = 0;
-    lastDetectedStringIndex = -1;
-    medianFilter.reset();
-    noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
-    freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
-    tuningIndicator.style.backgroundColor = "var(--accent-green)";
-    tuningIndicator.style.boxShadow = "none";
-    document.querySelectorAll('.string-btn').forEach(b => {
-        b.classList.remove('detected', 'locked');
-        b.style.transform = "scale(1)";
-        b.style.boxShadow = "none";
-        if (keepTuned) {
-            const key = b.dataset.note + b.dataset.octave;
-            if (tunedStrings.has(key)) b.classList.add('tuned');
-        } else { b.classList.remove('tuned'); }
-    });
-}
-
-function processAudio() {
-    if (!isRunning) return;
-    analyser.getFloatTimeDomainData(buf);
-    
-    // RMS 체크 (소음 게이트)
-    let rms = 0;
-    for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
-    rms = Math.sqrt(rms / buf.length);
-    
-    if (rms < 0.012) { 
-        if (!isNoteLocked) {
-             if (Math.abs(targetCents) > 1) {
-                 targetCents *= 0.9;
-             }
-        }
-        requestAnimationFrame(processAudio);
-        return;
-    }
-
-    const pitch = yinPitchDetection(buf, audioContext.sampleRate);
-    if (pitch !== -1) updateTuner(pitch);
-    requestAnimationFrame(processAudio);
-}
-
-// [YIN 알고리즘 최적화]
-function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.10; // 임계값 낮춤 (정확도 우선)
-    const bufferSize = buffer.length;
-    let tauEstimate = -1; let pitchInHz = -1;
-    const yinBuffer = new Float32Array(bufferSize / 2);
-    yinBuffer[0] = 1; let runningSum = 0;
-    
-    for (let tau = 1; tau < yinBuffer.length; tau++) {
-        let deltaSum = 0;
-        for (let i = 0; i < yinBuffer.length; i++) {
-            const delta = buffer[i] - buffer[i + tau];
-            deltaSum += delta * delta;
-        }
-        yinBuffer[tau] = deltaSum;
-        runningSum += yinBuffer[tau];
-        if (runningSum !== 0) yinBuffer[tau] *= tau / runningSum;
-        else yinBuffer[tau] = 1;
-    }
-
-    for (let tau = 2; tau < yinBuffer.length; tau++) {
-        if (yinBuffer[tau] < threshold) {
-            while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
-            tauEstimate = tau; break;
-        }
-    }
-
-    if (tauEstimate !== -1) {
-        // Parabolic Interpolation 보정
-        const x0 = tauEstimate;
-        const x1 = (x0 < 1) ? x0 : x0 - 1;
-        const x2 = (x0 + 1 < yinBuffer.length) ? x0 + 1 : x0;
-        
-        const s0 = yinBuffer[x0];
-        const s1 = yinBuffer[x1];
-        const s2 = yinBuffer[x2];
-        
-        let adjustment = 0;
-        if (x0 > 0 && x0 < yinBuffer.length - 1) {
-             const denominator = 2 * (s1 - 2 * s0 + s2);
-             if (denominator !== 0) {
-                 adjustment = (s1 - s2) / denominator;
-             }
-        }
-        tauEstimate = x0 + adjustment;
-        pitchInHz = sampleRate / tauEstimate;
-    }
-
-    const range = instruments[currentInstrument].range || [25, 2000];
-    if (pitchInHz < range[0] || pitchInHz > range[1]) return -1;
-    return pitchInHz;
-}
-
-function findClosestString(frequency) {
-    const instData = instruments[currentInstrument];
-    
-    if (instData.isChromatic) {
-        const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
-        const noteRound = Math.round(noteNum) + 69;
-        const noteName = noteStrings[noteRound % 12];
-        const octave = Math.floor(noteRound / 12) - 1;
-        const perfectFreq = 440 * Math.pow(2, (noteRound - 69) / 12);
-        return { note: noteName, octave: octave, targetFreq: perfectFreq, index: -1 };
-    }
-
-    let minDiff = Infinity;
-    let closestStr = null;
-    let closestIndex = -1;
-
-    instData.strings.forEach((str, index) => {
-        let weight = 1.0;
-        
-        // [수정] 줄 선택 '접착력' 강화
-        // 한번 줄이 선택되면 다른 줄로 웬만해선 튀지 않도록 가중치를 더 낮춤 (0.6 -> 0.4)
-        if (lastDetectedStringIndex === index) {
-            weight = 0.4; 
-        }
-
-        let diff = Math.abs(frequency - str.freq);
-        
-        // 2배음(옥타브) 체크 강화
-        const diffHarmonic = Math.abs(frequency - (str.freq * 2));
-        if (diffHarmonic < 10) { 
-             diff = diffHarmonic / 5; // 배음 보정
-        }
-
-        diff = diff * weight;
-
-        if (diff < minDiff) {
-            minDiff = diff;
-            closestStr = str;
-            closestIndex = index;
+            closeModal(currentModal);
         }
     });
 
-    if (closestIndex !== -1) {
-        lastDetectedStringIndex = closestIndex;
-    }
+    if (ccmBtn) ccmBtn.onclick = () => openModal(modalOverlay);
+    if (closeModalBtn) closeModalBtn.onclick = () => handleCloseBtnClick(modalOverlay);
+    if (closeBibleModalBtn) closeBibleModalBtn.onclick = () => handleCloseBtnClick(bibleModal);
+    if (bibleModal) bibleModal.onclick = (e) => { if (e.target === bibleModal) handleCloseBtnClick(bibleModal); };
 
-    return { 
-        note: closestStr.note, 
-        octave: closestStr.octave, 
-        targetFreq: closestStr.freq,
-        index: closestIndex
+    if (modalOverlay) modalOverlay.onclick = (e) => { 
+        if (!modalOverlay.classList.contains('mini-mode') && e.target === modalOverlay) {
+            handleCloseBtnClick(modalOverlay); 
+        }
     };
-}
+    if (closeIosModalBtn) closeIosModalBtn.onclick = () => handleCloseBtnClick(iosModal);
+    if (iosModal) iosModal.onclick = (e) => { if (e.target === iosModal) handleCloseBtnClick(iosModal); };
+    if (settingsBtn) settingsBtn.onclick = () => openModal(settingsModal);
+    if (closeSettingsBtn) closeSettingsBtn.onclick = () => handleCloseBtnClick(settingsModal);
+    if (settingsModal) settingsModal.onclick = (e) => { if (e.target === settingsModal) handleCloseBtnClick(settingsModal); };
 
-function updateTuner(frequency) {
-    const match = findClosestString(frequency);
-    
-    let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
-    
-    // 순환 보정
-    while (rawCents > 600) rawCents -= 1200;
-    while (rawCents < -600) rawCents += 1200;
+    function getYouTubeIdInfo(url) {
+        if (!url) return null;
+        const listMatch = url.match(/[?&]list=([^#&?]+)/);
+        if (listMatch) return { type: 'playlist', id: listMatch[1] };
+        const videoMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/)([^#&?]*))/);
+        if (videoMatch) return { type: 'video', id: videoMatch[1] };
+        return null;
+    }
 
-    currentDisplayedNote = match.note;
-    currentDisplayedOctave = match.octave;
-    
-    processCentsAndLocking(match.note, match.octave, rawCents, frequency);
-}
+    window.playRandomVideo = (category, title) => {
+        if (typeof CCM_PLAYLIST !== 'undefined' && CCM_PLAYLIST[category]) {
+            const list = CCM_PLAYLIST[category];
+            let availableList = list.filter(url => url !== lastVideoUrl);
+            if (availableList.length === 0) availableList = list;
+            const randomUrl = availableList[Math.floor(Math.random() * availableList.length)];
+            lastVideoUrl = randomUrl;
 
-function processCentsAndLocking(noteName, octave, rawCents, frequency) {
-    medianFilter.add(rawCents);
-    const smoothCents = medianFilter.getMedian();
+            const idInfo = getYouTubeIdInfo(randomUrl);
 
-    if (isNoteLocked) {
-        // [해제 조건] 많이 벗어나면 락 풀림
-        if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
-            isNoteLocked = false;
-            lockDuration = 0;
-            targetCents = smoothCents;
-        } else {
-            targetCents = 0; // 락킹 중엔 0으로 고정
-            guideMsg.textContent = "PERFECT";
-        }
-    } else {
-        targetCents = smoothCents;
-        // [잠금 조건] 오차 범위 ±5로 축소 (정확도 Up)
-        if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
-            lockDuration++;
-            // [잠금 시간] 12프레임 이상 유지해야 인정 (안정성 Up)
-            if (lockDuration > LOCK_REQUIRED_FRAMES) {
-                isNoteLocked = true;
-                
-                tunedStrings.add(noteName + octave);
-                highlightStringBtn(noteName, octave, true);
-                
-                playSuccessSound();
-                targetCents = 0; 
+            if(playerTitle && title) playerTitle.innerText = title;
+            if(ccmMenuView) ccmMenuView.style.display = 'none';
+            if(ccmPlayerView) ccmPlayerView.style.display = 'block';
+            requestWakeLock();
+
+            if (idInfo) {
+                if (player && isPlayerReady) {
+                    if (idInfo.type === 'playlist') {
+                        player.loadPlaylist({list: idInfo.id, listType: 'playlist'});
+                    } else {
+                        player.loadVideoById(idInfo.id);
+                    }
+                } else {
+                    console.log("Player not ready. Queuing...");
+                    pendingPlay = { category: category, title: title }; 
+                }
             }
-        } else {
-            lockDuration = 0; 
-        }
-    }
-    renderTextUI(noteName, octave, Math.round(targetCents), frequency, isNoteLocked);
-}
+        } else { alert("재생 목록이 없습니다."); }
+    };
 
-function renderTextUI(note, octave, cents, frequency, isLocked) {
-    noteNameEl.textContent = note; 
-    octaveEl.textContent = octave;
-    noteNameEl.classList.add('active');
-    
-    if(!isLocked) freqEl.textContent = frequency.toFixed(1) + " Hz";
-    
-    let displayStr = "";
-    if (isLocked) displayStr = "OK";
-    else displayStr = (cents > 0 ? "+" : "") + cents;
+    moodBtns.forEach(btn => {
+        btn.onclick = () => {
+            const key = btn.getAttribute('data-key');
+            const title = btn.querySelector('span:last-child').innerText;
+            currentCategory = key;
+            lastVideoUrl = null; 
+            playRandomVideo(key, title);
+        };
+    });
 
-    centsEl.textContent = displayStr; 
-    centsEl.classList.remove('hidden');
-
-    let colorVar = '--accent-green'; 
-    let msg = "TUNING...";
-    const style = getComputedStyle(document.body);
-
-    // 색상 범위 조정 (±5 내외가 녹색)
-    if (isLocked) {
-        colorVar = style.getPropertyValue('--accent-green');
-        msg = "PERFECT";
-    } else if (cents < -5) { 
-        colorVar = style.getPropertyValue('--accent-blue');
-        msg = "TOO LOW"; 
-    } else if (cents > 5) {
-        colorVar = style.getPropertyValue('--accent-pink');
-        msg = "TOO HIGH"; 
-    } else {
-        // 아주 근소한 차이 (락킹 직전)
-        colorVar = style.getPropertyValue('--accent-green');
-        msg = "HOLD...";
+    if (shufflePlayBtn) {
+        shufflePlayBtn.onclick = () => {
+            if (currentCategory) playRandomVideo(currentCategory, null);
+        };
     }
 
-    guideMsg.textContent = msg;
-    guideMsg.style.color = colorVar;
-    noteNameEl.style.color = colorVar;
-    noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
-    centsEl.style.backgroundColor = colorVar;
+    if (backToMenuBtn) {
+        backToMenuBtn.onclick = () => {
+            if(player && typeof player.stopVideo === 'function') player.stopVideo();
+            if(ccmPlayerView) ccmPlayerView.style.display = 'none';
+            if(ccmMenuView) ccmMenuView.style.display = 'block';
+            releaseWakeLock();
+        };
+    }
 
-    // [중요] 버튼 UI 업데이트를 매 프레임 호출하여 반응성 확보
-    highlightStringBtn(note, octave, isLocked);
-    
-    tuningIndicator.style.backgroundColor = colorVar;
-    if(isLocked) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
-    else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
-}
+    if (floatModeBtn) {
+        floatModeBtn.onclick = () => {
+            modalOverlay.classList.add('mini-mode');
+            if (maximizeOverlay) maximizeOverlay.style.display = 'block';
+        };
+    }
 
-function updateVisualizer() {
-    // 바늘 움직임 부드럽게
-    const factor = isNoteLocked ? 0.3 : 0.25; 
-    displayCents += (targetCents - displayCents) * factor;
+    const hideModeBtn = document.getElementById('hide-mode-btn'); 
+    let isHideMode = false;
+    const applyHiddenStatus = () => {
+        const hiddenList = JSON.parse(localStorage.getItem('hiddenCards')) || [];
+        const cards = document.querySelectorAll('.list-card');
+        cards.forEach(card => {
+            if (hiddenList.includes(card.id)) card.classList.add('user-hidden'); 
+            else card.classList.remove('user-hidden');
+        });
+    };
+    applyHiddenStatus();
+    if (hideModeBtn) {
+        hideModeBtn.onclick = () => {
+            isHideMode = !isHideMode;
+            document.body.classList.toggle('hide-mode', isHideMode);
+            if (isHideMode) { hideModeBtn.innerHTML = '✅'; hideModeBtn.classList.add('active'); } 
+            else { hideModeBtn.innerHTML = '🙈'; hideModeBtn.classList.remove('active'); }
+        };
+    }
 
-    let percentage = 50 + displayCents;
-    if (percentage < 5) percentage = 5; 
-    if (percentage > 95) percentage = 95;
-    
-    tuningIndicator.style.left = `${percentage}%`;
-    requestAnimationFrame(updateVisualizer);
-}
+    if (listContainer) {
+        listContainer.onclick = async (e) => {
+            const card = e.target.closest('.list-card');
+            if (!card) return;
 
-init();
+            if (isDragging) return;
+
+            if (isHideMode) {
+                if (card.id === 'card-share' || card.id === 'card-market') {
+                    alert("이 메뉴는 숨길 수 없습니다.");
+                    return;
+                }
+                let hiddenList = JSON.parse(localStorage.getItem('hiddenCards')) || [];
+                if (hiddenList.includes(card.id)) { hiddenList = hiddenList.filter(id => id !== card.id); card.classList.remove('user-hidden'); } 
+                else { hiddenList.push(card.id); card.classList.add('user-hidden'); }
+                localStorage.setItem('hiddenCards', JSON.stringify(hiddenList));
+                return;
+            }
+
+            if (card.id === 'card-ccm') {
+                openModal(modalOverlay);
+            } else if (card.id === 'card-share') {
+                const shareUrl = 'https://csy870617.github.io/faiths/';
+                if (window.Kakao && Kakao.isInitialized()) {
+                    try { Kakao.Share.sendScrap({ requestUrl: shareUrl }); return; } catch (err) {}
+                }
+                if (navigator.share) { try { await navigator.share({ url: shareUrl }); return; } catch (err) {} }
+                try { await navigator.clipboard.writeText(shareUrl); alert('주소가 복사되었습니다!'); } catch (err) { prompt('주소:', shareUrl); }
+            } else if (card.id === 'card-bible') {
+                openModal(bibleModal);
+            } else {
+                const link = card.getAttribute('data-link');
+                const title = card.querySelector('h3') ? card.querySelector('h3').innerText : 'FAITHS';
+                const target = card.getAttribute('data-target');
+                
+                if (link) {
+                    if (target === 'external') {
+                        window.open(link, '_blank');
+                    } else {
+                        openInternalBrowser(link);
+                    }
+                }
+            }
+        };
+    }
+
+    const installBanner = document.getElementById('install-banner');
+    const bannerInstallBtn = document.getElementById('banner-install-btn');
+    const bannerCloseBtn = document.getElementById('banner-close-btn');
+    const bannerNeverBtn = document.getElementById('banner-never-btn');
+    let deferredPrompt;
+    const showInstallBanner = () => {
+        if (localStorage.getItem('installBannerHidden') === 'true') return;
+        if (window.matchMedia('(display-mode: standalone)').matches) return;
+        setTimeout(() => { if(installBanner) installBanner.classList.add('show'); }, 3000);
+    };
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; showInstallBanner(); });
+    const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isIos) showInstallBanner();
+    if (bannerInstallBtn) {
+        bannerInstallBtn.onclick = () => {
+            installBanner.classList.remove('show');
+            if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt.userChoice.then((r) => { deferredPrompt = null; }); }
+            else if (isIos) { setTimeout(() => openModal(iosModal), 300); }
+            else { alert("브라우저 메뉴에서 [앱 설치]를 선택하세요."); }
+        };
+    }
+    if (bannerCloseBtn) bannerCloseBtn.onclick = () => installBanner.classList.remove('show');
+    if (bannerNeverBtn) bannerNeverBtn.onclick = () => { installBanner.classList.remove('show'); localStorage.setItem('installBannerHidden', 'true'); };
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    if (fontSizeSlider) {
+        const savedScale = localStorage.getItem('textScale');
+        if (savedScale) { document.documentElement.style.setProperty('--text-scale', savedScale); fontSizeSlider.value = savedScale; }
+        fontSizeSlider.oninput = (e) => { const scale = e.target.value; document.documentElement.style.setProperty('--text-scale', scale); localStorage.setItem('textScale', scale); };
+    }
+    const installAppBtn = document.getElementById('install-app-btn');
+    if (installAppBtn) {
+        installAppBtn.onclick = () => {
+            if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt.userChoice.then((r) => { deferredPrompt = null; }); }
+            else { const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent); if (isIos) { handleCloseBtnClick(settingsModal); setTimeout(() => openModal(iosModal), 350); } else { alert("이미 설치되어 있거나 브라우저 메뉴에서 설치 가능합니다."); } }
+        };
+    }
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach(tab => {
+        tab.onclick = () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const filterValue = tab.getAttribute('data-filter');
+            const cards = document.querySelectorAll('.list-card');
+            cards.forEach(card => {
+                const cardCategory = card.getAttribute('data-category');
+                if (filterValue === 'all' || filterValue === cardCategory) card.style.display = 'flex';
+                else card.style.display = 'none';
+            });
+        };
+    });
+});
