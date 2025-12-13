@@ -86,27 +86,27 @@ let analyser = null;
 let mediaStream = null;
 let isRunning = false; 
 let inputSource = null;
-let lowPassFilter = null; // 고음 노이즈 차단
-let highPassFilter = null; // [신규] 저음 핸들링 노이즈 차단
+
+// [필터 강화]
+let lowPassFilter = null; 
+let highPassFilter = null; // 저음 노이즈 제거용
 let compressor = null;   
 
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 const tunedStrings = new Set(); 
 
-// 필터 사이즈 5 유지 (너무 크면 반응 느림, 너무 작으면 튐)
 const medianFilter = new MedianFilter(5);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let lastDetectedStringIndex = -1; 
-let noteStabilityCounter = 0;
 
-// 락킹 설정
+// [락킹 조건 강화]
 let isNoteLocked = false;
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 10; // [변경] 정확도를 위해 약간 더 길게 유지
-const LOCK_TOLERANCE_CENTS = 8; // [변경] 허용 오차를 조금 더 엄격하게 (10 -> 8)
+const LOCK_REQUIRED_FRAMES = 12; // 프레임 수 증가 (안정성 확보)
+const LOCK_TOLERANCE_CENTS = 5;  // 오차 범위 축소 (정확도 확보 ±5)
 const UNLOCK_THRESHOLD_CENTS = 25; 
 
 let displayCents = 0; 
@@ -250,9 +250,16 @@ function highlightStringBtn(noteName, octave, isLocked) {
 
         if (isAlreadyTuned) {
             btn.classList.add('tuned');
+            // 이미 튜닝된 줄을 다시 칠 때 강조 효과
+            if (isCurrentDetected && isLocked) {
+                btn.style.transform = "scale(1.05)";
+                btn.style.boxShadow = "0 0 25px var(--accent-green)";
+            } else {
+                btn.style.transform = "scale(1)";
+            }
         } 
         
-        if (!isAlreadyTuned && isCurrentDetected) {
+        else if (isCurrentDetected) {
             if (isLocked) {
                 btn.classList.add('tuned');
             } else {
@@ -273,7 +280,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 (정확도 향상: HPF 추가 및 체인 개선) ---
+// --- 5. 오디오 처리 (정확도 향상: High Pass Filter 추가) ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
@@ -292,15 +299,15 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // 1. 컴프레서
+        // 1. 컴프레서 (입력 레벨 평탄화)
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50;
         compressor.ratio.value = 12;
 
-        // 2. High-Pass Filter (신규: 30Hz 이하 웅웅거림 제거)
+        // 2. High-Pass Filter (추가: 30Hz 이하 웅웅거림 제거 - 정확도 핵심)
         highPassFilter = audioContext.createBiquadFilter();
         highPassFilter.type = "highpass";
-        highPassFilter.frequency.value = 30; // 가청 주파수 이하 제거
+        highPassFilter.frequency.value = 30; 
 
         // 3. Low-Pass Filter (고음 노이즈 제거)
         lowPassFilter = audioContext.createBiquadFilter();
@@ -309,7 +316,7 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
 
-        // 연결 순서: 입력 -> 컴프 -> HPF -> LPF -> 분석기
+        // 연결: Input -> Compressor -> HPF -> LPF -> Analyser
         inputSource.connect(compressor);
         compressor.connect(highPassFilter);
         highPassFilter.connect(lowPassFilter);
@@ -356,6 +363,8 @@ function resetUI(keepTuned = false) {
     tuningIndicator.style.boxShadow = "none";
     document.querySelectorAll('.string-btn').forEach(b => {
         b.classList.remove('detected', 'locked');
+        b.style.transform = "scale(1)";
+        b.style.boxShadow = "none";
         if (keepTuned) {
             const key = b.dataset.note + b.dataset.octave;
             if (tunedStrings.has(key)) b.classList.add('tuned');
@@ -367,12 +376,11 @@ function processAudio() {
     if (!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
-    // RMS 체크
+    // RMS 체크 (소음 게이트)
     let rms = 0;
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 임계값 살짝 낮춤 (0.015 -> 0.012)
     if (rms < 0.012) { 
         if (!isNoteLocked) {
              if (Math.abs(targetCents) > 1) {
@@ -388,10 +396,9 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
-// [YIN 알고리즘 - 정확도 최적화]
+// [YIN 알고리즘 최적화]
 function yinPitchDetection(buffer, sampleRate) {
-    // 1. 임계값(threshold) 강화: 0.15 -> 0.10 (더 엄격하게 판단하여 오탐지 줄임)
-    const threshold = 0.10;
+    const threshold = 0.10; // 임계값 낮춤 (정확도 우선)
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -417,8 +424,7 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        // 2. Parabolic Interpolation (보정 공식) 표준화
-        // 이전보다 더 정밀한 피크 위치 추정
+        // Parabolic Interpolation 보정
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
         const x2 = (x0 + 1 < yinBuffer.length) ? x0 + 1 : x0;
@@ -427,7 +433,6 @@ function yinPitchDetection(buffer, sampleRate) {
         const s1 = yinBuffer[x1];
         const s2 = yinBuffer[x2];
         
-        // Parabolic peak shift calculation
         let adjustment = 0;
         if (x0 > 0 && x0 < yinBuffer.length - 1) {
              const denominator = 2 * (s1 - 2 * s0 + s2);
@@ -462,17 +467,19 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
+        
+        // [수정] 줄 선택 '접착력' 강화
+        // 한번 줄이 선택되면 다른 줄로 웬만해선 튀지 않도록 가중치를 더 낮춤 (0.6 -> 0.4)
         if (lastDetectedStringIndex === index) {
-            weight = 0.6; 
+            weight = 0.4; 
         }
 
         let diff = Math.abs(frequency - str.freq);
         
-        // 2배음 보정 강화 (옥타브 오류 방지)
+        // 2배음(옥타브) 체크 강화
         const diffHarmonic = Math.abs(frequency - (str.freq * 2));
-        // 배음 허용 범위를 조금 좁힘 (15Hz -> 10Hz)
         if (diffHarmonic < 10) { 
-             diff = diffHarmonic / 5; 
+             diff = diffHarmonic / 5; // 배음 보정
         }
 
         diff = diff * weight;
@@ -501,6 +508,7 @@ function updateTuner(frequency) {
     
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
+    // 순환 보정
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
 
@@ -515,18 +523,21 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
     const smoothCents = medianFilter.getMedian();
 
     if (isNoteLocked) {
+        // [해제 조건] 많이 벗어나면 락 풀림
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
             isNoteLocked = false;
             lockDuration = 0;
             targetCents = smoothCents;
         } else {
-            targetCents = 0; 
+            targetCents = 0; // 락킹 중엔 0으로 고정
             guideMsg.textContent = "PERFECT";
         }
     } else {
         targetCents = smoothCents;
+        // [잠금 조건] 오차 범위 ±5로 축소 (정확도 Up)
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
             lockDuration++;
+            // [잠금 시간] 12프레임 이상 유지해야 인정 (안정성 Up)
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 
@@ -561,16 +572,18 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     let msg = "TUNING...";
     const style = getComputedStyle(document.body);
 
+    // 색상 범위 조정 (±5 내외가 녹색)
     if (isLocked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -8) { // 오차 범위 시각화도 같이 줄임
+    } else if (cents < -5) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 8) {
+    } else if (cents > 5) {
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
     } else {
+        // 아주 근소한 차이 (락킹 직전)
         colorVar = style.getPropertyValue('--accent-green');
         msg = "HOLD...";
     }
@@ -581,6 +594,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
+    // [중요] 버튼 UI 업데이트를 매 프레임 호출하여 반응성 확보
     highlightStringBtn(note, octave, isLocked);
     
     tuningIndicator.style.backgroundColor = colorVar;
@@ -589,6 +603,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
 }
 
 function updateVisualizer() {
+    // 바늘 움직임 부드럽게
     const factor = isNoteLocked ? 0.3 : 0.25; 
     displayCents += (targetCents - displayCents) * factor;
 
