@@ -1,7 +1,6 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // [수정] 기타 HPF 30Hz 유지 / range는 참고용, 실제 LPF는 코드에서 5000Hz로 강제 개방
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 30, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -96,8 +95,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 스무딩 12 (안정적 움직임)
-const centsSmoother = new MovingAverage(12); 
+// [핵심 변경 1] 데이터 필터 크기 증가 (12 -> 16)
+// 데이터 자체의 미세한 떨림을 더 많이 평균내어 잠재움
+const centsSmoother = new MovingAverage(16); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -310,8 +310,7 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // [핵심 1] 입력 게인 증폭 (3.0 -> 5.0)
-        // 얇은 줄의 작은 소리도 크게 증폭
+        // 프리앰프 Gain 5.0 (유지)
         gainNode = audioContext.createGain();
         gainNode.gain.value = 5.0;
 
@@ -358,14 +357,11 @@ function applyInstrumentFilter() {
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
-    // [핵심 2] LPF 천장 개방 (1000Hz -> 5000Hz)
-    // 기타 1, 2번 줄의 배음(Harmonics)이 잘리던 문제를 해결
-    // 이제 찰랑거리는 고음역대 소리도 인식합니다.
+    // LPF 5000Hz (유지 - 고음 개방)
     let maxFreq = instData.range ? instData.range[1] : 1000;
     if (currentInstrument === 'guitar' || currentInstrument === 'ukulele') {
         maxFreq = 5000; 
     }
-    
     lowPassFilter.frequency.value = maxFreq;
 }
 
@@ -403,8 +399,7 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [핵심 3] 노이즈 게이트 조정 (0.005)
-    // 증폭된 신호지만 여전히 1,2번 줄은 에너지가 작으므로 낮은 값 허용
+    // 노이즈 게이트 (0.005)
     if (rms < 0.005) { 
          if (isLocked) {
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
@@ -428,8 +423,6 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    // [핵심 4] YIN 임계값 완화 (0.20)
-    // 고음역대 파형은 빨리 소멸하므로 조금 더 관대하게 판정
     const threshold = 0.20; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
@@ -456,7 +449,6 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        // 신뢰도 체크 완화
         if (yinBuffer[tauEstimate] > 0.20) return -1; 
 
         const x0 = tauEstimate;
@@ -502,7 +494,7 @@ function findClosestString(frequency) {
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
         if (lastDetectedStringIndex === index) {
-            weight = 0.5; // 접착력 유지
+            weight = 0.5; 
         }
 
         let diff = Math.abs(frequency - str.freq);
@@ -626,8 +618,10 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
+// [핵심 변경 2] 시각적 보정 (Visual Smoothing)
+// 바늘이 움직이는 속도를 극단적으로 낮춰 튀는 현상 제거 (0.12)
 function updateVisualizer() {
-    const lerpFactor = isLocked ? 0.6 : 0.4;
+    const lerpFactor = isLocked ? 0.2 : 0.12; // 천천히, 우아하게 이동
     displayCents += (targetCents - displayCents) * lerpFactor; 
 
     let percentage = 50 + displayCents;
