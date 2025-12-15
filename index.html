@@ -2,95 +2,77 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>CHURCH TUNER ULTIMATE</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Tuner Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="bg-fx"></div>
-
-    <div class="container">
+    <div class="app-container">
         <header>
-            <div class="header-badge">
-                <div class="status-indicator" id="status-dot"></div>
-                <h1>CHURCH TUNER</h1>
-                <span class="version">ULTIMATE</span>
+            <div class="logo-area">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">NEON TUNER</span>
+            </div>
+            <div class="status-indicator">
+                <div id="status-dot"></div>
             </div>
         </header>
 
-        <section class="instrument-section">
-            <p class="section-label">// SYSTEM SELECT</p>
-            <div class="instrument-grid">
-                <div class="inst-card active" data-type="guitar">
-                    <div class="inst-icon">🎸</div>
-                    <div class="inst-info">
-                        <span class="name">GUITAR</span>
-                        <span class="detail">6-String</span>
-                    </div>
-                </div>
-                <div class="inst-card" data-type="bass">
-                    <div class="inst-icon">🎻</div>
-                    <div class="inst-info">
-                        <span class="name">BASS</span>
-                        <span class="detail">4-String</span>
-                    </div>
-                </div>
-                <div class="inst-card special-slot" id="dynamic-inst-card" data-type="more">
-                    <div class="inst-icon" id="dyn-icon">➕</div>
-                    <div class="inst-info">
-                        <span class="name" id="dyn-name">MORE</span>
-                        <span class="detail" id="dyn-detail">Select Inst.</span>
-                    </div>
-                </div>
-            </div>
-        </section>
-
         <main>
-            <div class="tuner-centerpiece">
-                <div class="mode-badge" id="mode-badge">AUTO MODE</div>
-                <div class="guide-message" id="guide-msg">READY TO TUNE</div>
-                
-                <div class="visualizer-ring">
-                    <div class="ring-track"></div>
-                    <div class="tuning-indicator" id="tuning-indicator"></div>
-                    
-                    <div class="note-content">
-                        <span id="note-name">--</span>
-                        <span id="octave" class="octave"></span>
-                    </div>
-                </div>
+            <div class="tuner-display-area">
+                 <div id="guide-msg">TAP START TO TUNE</div>
 
-                <div class="frequency-data">
-                    <span id="frequency">0.0 Hz</span>
-                    <span id="cents" class="badge hidden">0</span>
+                <div class="note-wrapper">
+                    <span id="note-name">--</span>
+                    <span id="octave"></span>
+                </div>
+                
+                <div class="gauge-container">
+                    <svg class="gauge-svg" viewBox="0 0 200 100">
+                        <path class="gauge-track" d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke-width="4" stroke-linecap="round"/>
+                        <line class="center-marker" x1="100" y1="10" x2="100" y2="30" stroke-width="3" stroke-linecap="round"/>
+                        <g id="needle-group" transform="rotate(0, 100, 100)">
+                            <line class="needle" x1="100" y1="100" x2="100" y2="20" stroke-width="4" stroke-linecap="round"/>
+                             <circle class="needle-base" cx="100" cy="100" r="8" />
+                        </g>
+                    </svg>
+                     <div class="cents-display" id="cents">0</div>
                 </div>
             </div>
 
-            <div class="string-control-panel">
-                 <div class="panel-header">
-                     <p class="section-label">// DETECTED STRING</p>
-                 </div>
-                <div class="string-selector" id="string-container"></div>
+            <div class="frequency-info">
+                <span id="frequency">0.0 Hz</span>
             </div>
         </main>
 
         <footer>
-            <button id="start-btn">
-                <span class="btn-text">ACTIVATE MIC</span>
-            </button>
+            <div class="control-panel">
+                <button id="start-btn">
+                    <div class="btn-content">
+                        <span class="mic-icon">🎙️</span>
+                        <span class="btn-text">ACTIVATE</span>
+                    </div>
+                </button>
+                
+                <div class="instrument-selector">
+                    <div class="inst-pill active" data-type="guitar">🎸 GUITAR</div>
+                    <div class="inst-pill" data-type="bass">🎸 BASS</div>
+                    <div class="inst-pill" id="dynamic-inst-card" data-type="ukulele">
+                        <span id="dyn-icon">🌴</span> <span id="dyn-name">UKULELE</span>
+                    </div>
+                </div>
+            </div>
         </footer>
     </div>
 
     <div id="inst-modal" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-glass">
             <div class="modal-header">
-                <h2>SELECT INSTRUMENT</h2>
+                <h3>SELECT MODE</h3>
                 <button id="close-modal">✕</button>
             </div>
-            <div class="modal-list" id="modal-list">
-                </div>
+            <div id="modal-list" class="modal-list"></div>
         </div>
     </div>
 
