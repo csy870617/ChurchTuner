@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // [수정] 기타 HPF 50Hz (6번줄 보호) / 고음역대 오인식 방지
+    // HPF 50Hz: 저음 잡음 제거
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -61,8 +61,8 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (이동 평균 + 중간값 필터) ---
-class Smoother {
+// --- 2. 안정화 유틸리티 (중간값 필터 - 튀는 값 제거용) ---
+class MedianSmoother {
     constructor(size) {
         this.size = size;
         this.buffer = [];
@@ -71,22 +71,12 @@ class Smoother {
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
     }
-    // [핵심] 튀는 값 제거(Median) 후 평균(Average) 계산 -> 널뛰기 방지
-    getSmoothedValue() {
+    getValue() {
         if (this.buffer.length === 0) return 0;
-        
-        // 1. 복사 후 정렬 (원본 보존)
+        // 1. 복사 후 정렬
         const sorted = [...this.buffer].sort((a, b) => a - b);
-        
-        // 2. 상하위 20% 절삭 (튀는 값 제거)
-        const crop = Math.floor(sorted.length * 0.2);
-        const cropped = sorted.slice(crop, sorted.length - crop);
-        
-        if (cropped.length === 0) return sorted[Math.floor(sorted.length/2)];
-
-        // 3. 남은 값들의 평균
-        const sum = cropped.reduce((a, b) => a + b, 0);
-        return sum / cropped.length;
+        // 2. 중간값 반환 (튀는 값 무시의 최고봉)
+        return sorted[Math.floor(sorted.length / 2)];
     }
     reset() { this.buffer = []; }
 }
@@ -108,8 +98,10 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심] 필터 사이즈 15 (충분한 샘플 확보로 널뛰기 방지)
-const centsSmoother = new Smoother(15); 
+// [핵심] 주파수 자체를 안정화하는 필터 (튀는 Hz 제거)
+const freqSmoother = new MedianSmoother(5); 
+// [핵심] 바늘(Cents)을 부드럽게 하는 필터 (널뛰기 방지)
+const centsSmoother = new MedianSmoother(10);
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -251,6 +243,7 @@ function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
+    // PERFECT 기준 ±3.0센트
     const isPerfect = Math.abs(targetCents) <= 3.0;
 
     btns.forEach(btn => {
@@ -322,9 +315,9 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // 프리앰프 Gain 5.0 (유지)
+        // [수정] 게인 3.0으로 하향 조정 (왜곡 방지)
         gainNode = audioContext.createGain();
-        gainNode.gain.value = 5.0;
+        gainNode.gain.value = 3.0;
 
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50; 
@@ -349,6 +342,7 @@ async function startTuner() {
         applyInstrumentFilter();
 
         isRunning = true;
+        freqSmoother.reset();
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
         consecutiveNoteCount = 0;
@@ -369,7 +363,7 @@ function applyInstrumentFilter() {
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
-    // LPF 5000Hz (유지 - 고음 개방)
+    // LPF 5000Hz (고음 개방)
     let maxFreq = instData.range ? instData.range[1] : 1000;
     if (currentInstrument === 'guitar' || currentInstrument === 'ukulele') {
         maxFreq = 5000; 
@@ -390,6 +384,7 @@ function resetUI() {
     displayCents = 0; targetCents = 0;
     currentDisplayedNote = "--"; 
     lastDetectedStringIndex = -1;
+    freqSmoother.reset();
     centsSmoother.reset();
     isLocked = false;
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
@@ -430,7 +425,12 @@ function processAudio() {
     }
 
     const pitch = yinPitchDetection(buf, audioContext.sampleRate);
-    if (pitch !== -1) updateTuner(pitch);
+    if (pitch !== -1) {
+        // [중요] 1차 필터: 주파수 자체를 안정화 (튀는 Hz 제거)
+        freqSmoother.add(pitch);
+        const smoothPitch = freqSmoother.getValue();
+        updateTuner(smoothPitch);
+    }
     requestAnimationFrame(processAudio);
 }
 
@@ -504,14 +504,19 @@ function findClosestString(frequency) {
     let closestIndex = -1;
 
     instData.strings.forEach((str, index) => {
-        // [수정] 접착력(Weight)을 아주 약하게 조정 (0.8)
-        // E코드(330Hz)가 A코드(110Hz)의 접착력에 빨려들어가지 않도록 함
         let weight = 1.0;
         if (lastDetectedStringIndex === index) {
-            weight = 0.8; 
+            weight = 0.8; // 약간의 접착력
         }
 
+        // [중요] 3배음 체크 완전 삭제 (E와 A 혼동 방지)
+        // 오직 2배음(옥타브)만 약하게 보정
         let diff = Math.abs(frequency - str.freq);
+        const diff2x = Math.abs(frequency - (str.freq * 2));
+        
+        // 2배음이면 살짝 가중치 둬서 기본음으로 유도 (선택 사항)
+        if(diff2x < 5) diff = diff2x / 5;
+
         diff = diff * weight;
 
         if (diff < minDiff) {
@@ -561,11 +566,11 @@ function updateTuner(frequency) {
 }
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
-    // [핵심] Smoother가 튀는 값을 1차로 거르고, 부드러운 값만 줌
+    // [중요] 2차 필터: Cents 값을 중간값 필터로 안정화 (널뛰기 완전 방지)
     centsSmoother.add(rawCents);
-    let smoothedCents = centsSmoother.getSmoothedValue(); 
+    let smoothedCents = centsSmoother.getValue(); 
 
-    // 진입 3.0, 탈출 6.0
+    // 락킹 범위: ±3.0 (진입), ±6.0 (유지)
     const LOCK_ENTER_THRESHOLD = 3.0; 
     const LOCK_EXIT_THRESHOLD = 6.0;  
 
@@ -633,9 +638,9 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [핵심] 바늘 애니메이션: Lerp를 사용해 좌우로만 부드럽게 이동
+// [핵심] 바늘 속도 조절
 function updateVisualizer() {
-    const lerpFactor = isLocked ? 0.4 : 0.15; // 천천히 이동
+    const lerpFactor = isLocked ? 0.3 : 0.15; 
     displayCents += (targetCents - displayCents) * lerpFactor; 
 
     let percentage = 50 + displayCents;
