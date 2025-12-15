@@ -60,7 +60,7 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 ---
+// --- 2. 안정화 유틸리티 (이동 평균 필터) ---
 class MovingAverage {
     constructor(size) {
         this.size = size;
@@ -94,9 +94,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심 변경] 스무딩 필터 크기 증가 (6 -> 9)
-// 줄 튕길 때의 초기 급발진(피치 튐)을 부드럽게 평균내어 잡아줍니다.
-const centsSmoother = new MovingAverage(9); 
+// [핵심 변경] 흔들림 보정을 위해 필터 사이즈 증가 (2 -> 8)
+// 줄의 초기 진동을 부드럽게 평균내어 Perfect 고정력을 높임
+const centsSmoother = new MovingAverage(8); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -106,7 +106,7 @@ let lastSuccessTime = 0;
 let displayCents = 0; 
 let targetCents = 0;
 
-let isLocked = false;
+// [소음 방지용]
 let consecutiveNoteCount = 0;
 let lastDetectedNoteFull = "";
 
@@ -234,12 +234,14 @@ function renderStringButtons(instType) {
     });
 }
 
-function highlightStringBtn(noteName, octave, isLocked) {
+function highlightStringBtn(noteName, octave, cents) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
+    // PERFECT 기준: ±1센트
+    const isPerfect = Math.abs(cents) <= 1.0;
+
     btns.forEach(btn => {
-        const btnKey = btn.dataset.note + btn.dataset.octave;
         const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
 
         btn.classList.remove('detected', 'locked', 'tuned');
@@ -247,7 +249,7 @@ function highlightStringBtn(noteName, octave, isLocked) {
         btn.style.boxShadow = "none";
 
         if (isCurrentDetected) {
-            if (isLocked) {
+            if (isPerfect) {
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
                 btn.style.boxShadow = "0 0 30px var(--accent-green)";
@@ -326,7 +328,7 @@ async function startTuner() {
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
         consecutiveNoteCount = 0;
-        isLocked = false;
+        lastSuccessTime = 0;
         
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
@@ -360,7 +362,6 @@ function resetUI() {
     currentDisplayedNote = "--"; 
     lastDetectedStringIndex = -1;
     centsSmoother.reset();
-    isLocked = false;
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
@@ -380,19 +381,14 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [중요] 노이즈 게이트 상향 (0.05) - 외부 소음 차단
-    if (rms < 0.05) { 
-         if (isLocked) {
-             if (Math.abs(targetCents) > 1) targetCents *= 0.9;
+    // 소음 게이트
+    if (rms < 0.04) { 
+         if (Math.abs(targetCents) > 1) {
+             targetCents *= 0.8;
          } else {
-             if (Math.abs(targetCents) > 1) targetCents *= 0.8;
-             else targetCents = 0;
+             targetCents = 0;
          }
-         
-         if(rms < 0.01) {
-            isLocked = false;
-         }
-         
+        consecutiveNoteCount = 0;
         requestAnimationFrame(processAudio);
         return;
     }
@@ -403,8 +399,7 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    // [중요] YIN 임계값 강화 (0.10 -> 0.08) - 잡음 필터링
-    const threshold = 0.08; 
+    const threshold = 0.10; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -430,7 +425,6 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        // [이중 체크] 신뢰도가 낮으면(값이 크면) 무시
         if (yinBuffer[tauEstimate] > 0.08) return -1; 
 
         const x0 = tauEstimate;
@@ -476,6 +470,7 @@ function findClosestString(frequency) {
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
         
+        // 줄 인식 접착력 (0.5)
         if (lastDetectedStringIndex === index) {
             weight = 0.5; 
         }
@@ -517,19 +512,21 @@ function updateTuner(frequency) {
 
     const currentNoteKey = match.note + match.octave;
     
-    // 줄이 바뀌면 즉시 리셋 (반응성)
+    // [중요] 새로운 노트가 감지되면?
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
-        
-        isLocked = false;
-        centsSmoother.reset(); 
-        
         return; 
     }
 
     consecutiveNoteCount++;
     if (consecutiveNoteCount < 2) return; 
+    
+    // [핵심] 노트가 바뀔 때 필터 초기화 (빠른 반응)
+    // 2프레임 연속 감지된 순간 = 확실한 노트 변경 시점
+    if (consecutiveNoteCount === 2) {
+        centsSmoother.reset();
+    }
 
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
@@ -539,42 +536,21 @@ function updateTuner(frequency) {
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
-    let smoothedCents = centsSmoother.getAverage(); 
+    targetCents = centsSmoother.getAverage(); 
 
-    // [스마트 락킹 유지]
-    // 진입 1.5센트, 탈출 4.0센트 -> 한번 맞으면 끈끈하게 유지
-    const LOCK_ENTER_THRESHOLD = 1.5;
-    const LOCK_EXIT_THRESHOLD = 4.0;
-
-    if (isLocked) {
-        if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; 
-        } else {
-            isLocked = false; 
-            targetCents = smoothedCents;
-        }
-    } else {
-        if (Math.abs(smoothedCents) < LOCK_ENTER_THRESHOLD) {
-            isLocked = true;
-            targetCents = 0;
-            playSuccessSound();
-        } else {
-            targetCents = smoothedCents;
-        }
-    }
-
-    renderTextUI(noteName, octave, targetCents, frequency, isLocked); 
+    renderTextUI(noteName, octave, targetCents, frequency); 
 }
 
-function renderTextUI(note, octave, cents, frequency, locked) {
+function renderTextUI(note, octave, cents, frequency) {
     noteNameEl.textContent = note; 
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
-    
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
+    const isPerfect = Math.abs(cents) <= 1.0;
+    
     const roundedCents = Math.round(cents);
-    let displayStr = locked ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
+    let displayStr = isPerfect ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
     
     centsEl.textContent = displayStr; 
     centsEl.classList.remove('hidden');
@@ -583,18 +559,16 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     let msg = "TUNING...";
     const style = getComputedStyle(document.body);
 
-    if (locked) {
+    if (isPerfect) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -1.5) { 
+        playSuccessSound();
+    } else if (cents < -1.0) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 1.5) { 
+    } else if (cents > 1.0) { 
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
-    } else {
-        colorVar = style.getPropertyValue('--accent-green');
-        msg = "HOLD...";
     }
 
     guideMsg.textContent = msg;
@@ -603,14 +577,15 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
-    highlightStringBtn(note, octave, locked);
+    highlightStringBtn(note, octave, cents);
     
     tuningIndicator.style.backgroundColor = colorVar;
-    if(locked) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
+    if(isPerfect) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
 function updateVisualizer() {
+    // 안정화된 값을 조금 더 부드럽게 시각화
     displayCents += (targetCents - displayCents) * 0.4; 
 
     let percentage = 50 + displayCents;
