@@ -10,7 +10,6 @@ const instruments = {
         { note: "E", octave: 1, freq: 41.20 }, { note: "A", octave: 1, freq: 55.00 }, 
         { note: "D", octave: 2, freq: 73.42 }, { note: "G", octave: 2, freq: 98.00 } 
     ] },
-    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "Universal", range: [20, 3000], hpf: 20, isChromatic: true, strings: [] },
     ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", hpf: 150, strings: [ 
         { note: "G", octave: 4, freq: 392.00 }, { note: "C", octave: 4, freq: 261.63 }, 
         { note: "E", octave: 4, freq: 329.63 }, { note: "A", octave: 4, freq: 440.00 } 
@@ -34,7 +33,8 @@ const instruments = {
     ] },
     trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", hpf: 150, strings: [ 
         { note: "Bb", octave: 3, freq: 233.08 }, { note: "F", octave: 4, freq: 349.23 } 
-    ] }
+    ] },
+    chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", hpf: 30, isChromatic: true, strings: [] }
 };
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -60,10 +60,8 @@ let isRunning = false; let inputSource = null;
 let gainNode = null; let lowPassFilter = null; let highPassFilter = null; let compressor = null;
 
 const BUF_SIZE = 4096; const buf = new Float32Array(BUF_SIZE);
-
-// [수정] 스무딩 강화 (바늘 널뛰기 방지)
 const freqSmoother = new MedianSmoother(7); 
-const centsSmoother = new MovingAverage(24); // 14 -> 24: 더 많은 데이터를 평균내어 부드럽게 만듦
+const centsSmoother = new MovingAverage(24); 
 
 let currentDisplayedNote = "--"; let currentDisplayedOctave = "";
 let lastSuccessTime = 0; 
@@ -71,6 +69,7 @@ let displayAngle = 0; let targetAngle = 0;
 let isLocked = false; let consecutiveNoteCount = 0; let lastDetectedNoteFull = "";
 let stableStringIndex = -1; let pendingStringIndex = -1; let stringStabilityCounter = 0;
 
+// DOM Elements
 const startBtn = document.getElementById('start-btn');
 const btnText = startBtn.querySelector('.btn-text');
 const noteNameEl = document.getElementById('note-name');
@@ -88,8 +87,11 @@ const closeModalBtn = document.getElementById('close-modal');
 const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 
+// --- 초기화 ---
 function init() {
-    loadSettings();
+    // [핵심] 페이지 로드 시 무조건 초기 상태로 강제 설정
+    resetToDefault(); 
+    
     instPills.forEach(pill => pill.addEventListener('click', () => handleInstClick(pill)));
     startBtn.addEventListener('click', toggleTuner);
     closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
@@ -100,38 +102,45 @@ function init() {
     requestAnimationFrame(updateVisualizer);
 }
 
+// [핵심] 초기화 함수: 저장된 것 무시하고 기본값(Guitar + Select버튼)으로 리셋
+function resetToDefault() {
+    // 1. 저장소 클리어 (선택 사항이지만 확실한 리셋을 위해)
+    localStorage.removeItem('churchTuner_current');
+    localStorage.removeItem('churchTuner_dynamic');
+
+    // 2. 3번 버튼을 'SELECT' 모드로 강제 복구
+    dynIcon.textContent = "🎵";
+    dynName.textContent = "SELECT";
+    dynamicCard.dataset.type = "select";
+    
+    // 3. 기타(Guitar)를 기본 악기로 선택
+    const guitarPill = document.querySelector('.inst-pill[data-type="guitar"]');
+    activateInstrument('guitar', guitarPill);
+}
+
 function handleInstClick(pill) {
     const type = pill.dataset.type;
+    
     if (type === 'select' || (pill.id === 'dynamic-inst-card' && pill.classList.contains('active'))) {
         openModal(); return;
     }
     activateInstrument(type, pill);
 }
 
-function loadSettings() {
-    const saved = localStorage.getItem('churchTuner_current') || 'guitar';
-    const savedDyn = localStorage.getItem('churchTuner_dynamic');
-    if(savedDyn && instruments[savedDyn]){
-        dynIcon.textContent = instruments[savedDyn].icon;
-        dynName.textContent = instruments[savedDyn].name;
-        dynamicCard.dataset.type = savedDyn;
-    }
-    let targetPill = document.querySelector(`.inst-pill[data-type="${saved}"]`);
-    if (!targetPill) targetPill = dynamicCard;
-    activateInstrument(saved, targetPill);
-}
-
 function activateInstrument(key, pill) {
     instPills.forEach(p => p.classList.remove('active'));
     pill.classList.add('active');
+    
     currentInstrument = key;
-    localStorage.setItem('churchTuner_current', key);
+    // 이제 localStorage에 저장하지 않음 (재접속 시 리셋되도록)
+    
     if(key !== 'guitar' && key !== 'bass') {
-        localStorage.setItem('churchTuner_dynamic', key);
+        // 동적 버튼 UI만 업데이트 (저장은 안 함)
         dynIcon.textContent = instruments[key].icon;
         dynName.textContent = instruments[key].name;
         dynamicCard.dataset.type = key;
     }
+
     if(isRunning) applyFilters();
     resetUI();
 }
@@ -144,51 +153,30 @@ function generateModalList() {
         const div = document.createElement('div');
         div.className = 'inst-option';
         div.innerHTML = `<div class="opt-icon">${inst.icon}</div><div class="opt-info"><span class="opt-name">${inst.name}</span><span class="opt-detail">${inst.detail}</span></div>`;
-        div.addEventListener('click', () => { activateInstrument(key, dynamicCard); modal.classList.add('hidden'); });
+        div.addEventListener('click', () => { 
+            // 선택 시 동적 버튼에 할당하고 모달 닫기
+            activateInstrument(key, dynamicCard); 
+            modal.classList.add('hidden'); 
+        });
         modalList.appendChild(div);
     });
 }
 function openModal() { modal.classList.remove('hidden'); }
 
-// [핵심] "띵-동~" 사운드 구현 (2단 콤보)
+// 띵동~ 사운드
 function playSuccessSound() {
     if (!audioContext) return;
-    const now = Date.now(); 
-    // 너무 자주 울리지 않도록 쿨타임 증가 (2초)
-    if (now - lastSuccessTime < 2000) return; 
-    lastSuccessTime = now;
-    
+    const now = Date.now(); if (now - lastSuccessTime < 2000) return; lastSuccessTime = now;
     const t = audioContext.currentTime;
-
-    // 1. "띵" (고음, E6)
-    const osc1 = audioContext.createOscillator();
-    const gain1 = audioContext.createGain();
-    osc1.frequency.value = 1318.51; // E6
-    osc1.type = 'sine'; // 맑은 소리
-
-    // 2. "동" (저음, C6, 약간 늦게 시작)
-    const osc2 = audioContext.createOscillator();
-    const gain2 = audioContext.createGain();
-    osc2.frequency.value = 1046.50; // C6
-    osc2.type = 'sine'; 
-
-    // 볼륨 엔벨롭 (종소리처럼 여운)
-    gain1.gain.setValueAtTime(0, t);
-    gain1.gain.linearRampToValueAtTime(0.3, t + 0.05); // Attack
-    gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.2); // Decay
-
-    gain2.gain.setValueAtTime(0, t);
-    gain2.gain.setValueAtTime(0, t + 0.2); // 0.2초 딜레이
-    gain2.gain.linearRampToValueAtTime(0.3, t + 0.25); // Attack
-    gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.5); // Decay
-
-    osc1.connect(gain1).connect(audioContext.destination);
-    osc2.connect(gain2).connect(audioContext.destination);
-
-    osc1.start(t); osc1.stop(t + 1.2);
-    osc2.start(t + 0.2); osc2.stop(t + 1.8);
+    const osc1 = audioContext.createOscillator(); const gain1 = audioContext.createGain(); osc1.frequency.value = 1318.51; osc1.type = 'sine';
+    const osc2 = audioContext.createOscillator(); const gain2 = audioContext.createGain(); osc2.frequency.value = 1046.50; osc2.type = 'triangle';
+    gain1.gain.setValueAtTime(0, t); gain1.gain.linearRampToValueAtTime(0.3, t + 0.05); gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+    gain2.gain.setValueAtTime(0, t); gain2.gain.setValueAtTime(0, t + 0.2); gain2.gain.linearRampToValueAtTime(0.3, t + 0.25); gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+    osc1.connect(gain1).connect(audioContext.destination); osc2.connect(gain2).connect(audioContext.destination);
+    osc1.start(t); osc1.stop(t + 1.2); osc2.start(t + 0.2); osc2.stop(t + 1.8);
 }
 
+// --- 오디오 처리 ---
 function toggleTuner() { isRunning ? stopTuner() : startTuner(); }
 
 async function startTuner() {
@@ -246,11 +234,7 @@ function processAudio() {
     if(rms < 0.05) {
         if(isLocked) { if(Math.abs(targetAngle) > 1) targetAngle *= 0.9; }
         else { if(Math.abs(targetAngle) > 1) targetAngle *= 0.8; else targetAngle = 0; }
-        
-        if(rms < 0.01) { 
-            isLocked = false; stableStringIndex = -1; 
-            document.body.className = ""; centsEl.classList.remove('visible');
-        }
+        if(rms < 0.01) { isLocked = false; stableStringIndex = -1; document.body.className = ""; centsEl.classList.remove('visible');}
         consecutiveNoteCount = 0; requestAnimationFrame(processAudio); return;
     }
 
@@ -354,7 +338,6 @@ function renderUI(note, oct, cents, freq) {
     guideMsg.textContent = msg; guideMsg.style.color = "var(--current-neon)";
 }
 
-// [수정] 바늘 움직임을 더 묵직하게 (0.15 -> 0.08)
 function updateVisualizer() {
     displayAngle += ((isLocked ? 0 : targetAngle) - displayAngle) * 0.08; 
     if(needleGroup) needleGroup.setAttribute('transform', `rotate(${displayAngle}, 100, 100)`);
