@@ -94,8 +94,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 스무딩 필터: 8 정도로 유지하여 흔들림 적당히 제어
-const centsSmoother = new MovingAverage(8); 
+// [핵심 변경 1] 스무딩 필터 크기 증가 (12)
+// 줄 튕길 때의 '확' 튀는 현상을 잡기 위해 평균값을 더 많이 냅니다.
+const centsSmoother = new MovingAverage(12); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -257,28 +258,40 @@ function highlightStringBtn(noteName, octave, isLocked) {
     });
 }
 
+// [핵심 변경 2] 사운드 업그레이드 (띵~ 종소리)
 function playSuccessSound() {
     if (!audioContext) return;
     
     const now = Date.now();
-    if (now - lastSuccessTime < 2000) return;
+    if (now - lastSuccessTime < 1500) return; // 쿨타임 조금 줄임
     lastSuccessTime = now;
 
     const t = audioContext.currentTime;
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
     
-    osc.type = 'sine'; 
-    osc.frequency.setValueAtTime(880, t); 
+    // 1. 기본음 (880Hz)
+    const osc1 = audioContext.createOscillator();
+    const gain1 = audioContext.createGain();
+    osc1.frequency.value = 880; 
+    osc1.type = 'sine';
     
-    gain.gain.setValueAtTime(0.05, t); 
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    // 2. 배음 (1760Hz) - 풍성함 추가
+    const osc2 = audioContext.createOscillator();
+    const gain2 = audioContext.createGain();
+    osc2.frequency.value = 1760; 
+    osc2.type = 'sine';
+
+    // 볼륨 엔벨로프 (Bell Shape)
+    gain1.gain.setValueAtTime(0.3, t); 
+    gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.5); // 긴 여운
+
+    gain2.gain.setValueAtTime(0.1, t); 
+    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.5); // 짧은 여운
+
+    osc1.connect(gain1); gain1.connect(audioContext.destination);
+    osc2.connect(gain2); gain2.connect(audioContext.destination);
     
-    osc.connect(gain); 
-    gain.connect(audioContext.destination);
-    
-    osc.start(); 
-    osc.stop(t + 0.3);
+    osc1.start(t); osc1.stop(t + 1.5);
+    osc2.start(t); osc2.stop(t + 1.5);
 }
 
 // --- 5. 오디오 처리 ---
@@ -380,18 +393,15 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 노이즈 게이트 (0.05)
+    // 소음 게이트 (0.05)
     if (rms < 0.05) { 
-         // 소리가 멈출 때
          if (isLocked) {
-             // 락킹 상태면 잠시 유지하다가 꺼짐 (깜빡임 방지)
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
          } else {
              if (Math.abs(targetCents) > 1) targetCents *= 0.8;
              else targetCents = 0;
          }
          
-         // 완전 무음이면 락킹 해제
          if(rms < 0.01) {
             isLocked = false;
          }
@@ -407,7 +417,7 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.08; // 엄격한 음색 판단
+    const threshold = 0.08; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -477,7 +487,6 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
-        // 접착력 유지
         if (lastDetectedStringIndex === index) {
             weight = 0.5; 
         }
@@ -542,26 +551,22 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    // [핵심 로직] 판정 완화 및 강력한 락킹 (Hysteresis)
-    // 1. 진입(Enter): ±3.0센트 (요청하신 대로 완화)
-    // 2. 탈출(Exit):  ±6.0센트 (한번 잡히면 끈끈하게 유지)
-    
-    const LOCK_ENTER_THRESHOLD = 3.0; // 1.0 -> 3.0 (쉬움)
-    const LOCK_EXIT_THRESHOLD = 6.0;  // 흔들려도 버팀
+    // 진입 3.0, 탈출 6.0 (요청하신 완화된 기준)
+    const LOCK_ENTER_THRESHOLD = 3.0; 
+    const LOCK_EXIT_THRESHOLD = 6.0;  
 
     if (isLocked) {
-        // 락킹 상태
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; // 바늘 중앙 강제 고정
+            targetCents = 0; 
         } else {
-            isLocked = false; // 너무 많이 벗어나면 풀림
+            isLocked = false; 
             targetCents = smoothedCents;
         }
     } else {
-        // 락킹 아닐 때
         if (Math.abs(smoothedCents) < LOCK_ENTER_THRESHOLD) {
-            isLocked = true; // 락킹 시작
+            isLocked = true;
             targetCents = 0;
+            // 확실한 알림음
             playSuccessSound();
         } else {
             targetCents = smoothedCents;
@@ -591,7 +596,7 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     if (locked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -3.0) { // 메시지 기준도 3.0으로 맞춤
+    } else if (cents < -3.0) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
     } else if (cents > 3.0) { 
@@ -616,9 +621,7 @@ function renderTextUI(note, octave, cents, frequency, locked) {
 }
 
 function updateVisualizer() {
-    // 락킹되면 바늘이 더 빠르게 중앙으로 꽂힘 (0.4 -> 0.6)
-    const lerpFactor = isLocked ? 0.6 : 0.4;
-    displayCents += (targetCents - displayCents) * lerpFactor; 
+    displayCents += (targetCents - displayCents) * 0.4; 
 
     let percentage = 50 + displayCents;
     if (percentage < 5) percentage = 5; 
