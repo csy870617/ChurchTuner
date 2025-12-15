@@ -113,9 +113,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 필터 설정
+// 필터 설정 (유지)
 const freqSmoother = new MedianSmoother(5); 
-const centsSmoother = new MovingAverage(16); // 이동 평균으로 바늘 움직임 부드럽게
+const centsSmoother = new MovingAverage(16); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -328,7 +328,7 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // 게인 3.0
+        // 게인 3.0 유지
         gainNode = audioContext.createGain();
         gainNode.gain.value = 3.0;
 
@@ -418,6 +418,7 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
+    // 노이즈 게이트 0.04
     if (rms < 0.04) { 
          if (isLocked) {
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
@@ -497,6 +498,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
+// [핵심] 줄 선택 로직 (우선순위 & 범위 제한)
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -513,32 +515,34 @@ function findClosestString(frequency) {
     let closestStr = null;
     let closestIndex = -1;
 
+    // [1차 필터링] 주파수 범위 ±20% 내의 줄만 후보로 등록 (엄격함)
+    const candidates = [];
     instData.strings.forEach((str, index) => {
-        // [핵심] 엄격한 주파수 윈도우 (±30% 이내만 허용)
-        // 5번줄(110Hz)은 143Hz 이상을 아예 받지 않으므로, 1번줄(330Hz)이 들어올 틈이 없음.
-        if (frequency < str.freq * 0.7 || frequency > str.freq * 1.3) {
-            return; // Skip mismatching strings
-        }
-
-        let weight = 1.0;
-        if (lastDetectedStringIndex === index) {
-            weight = 0.8; 
-        }
-
-        let diff = Math.abs(frequency - str.freq);
-        diff = diff * weight;
-
-        if (diff < minDiff) {
-            minDiff = diff;
-            closestStr = str;
-            closestIndex = index;
+        if (frequency >= str.freq * 0.8 && frequency <= str.freq * 1.2) {
+            candidates.push({ str, index, diff: Math.abs(frequency - str.freq) });
         }
     });
 
-    // 아무 줄도 매칭되지 않으면? (유령 소리)
-    if (!closestStr) {
-        return { note: currentDisplayedNote, octave: currentDisplayedOctave, targetFreq: 440, index: -1 }; // 기존 유지
-    }
+    if (candidates.length === 0) return { index: -1 }; // 일치하는 줄 없음
+
+    // [2차 필터링] 후보 중 가장 가까운 줄 선택 (우선순위 적용)
+    // 만약 1번줄(E)과 5번줄(A)이 경합한다면? -> 주파수 범위가 다르므로 경합할 일이 없음 (±20% 제한 덕분)
+    candidates.forEach(cand => {
+        let weight = 1.0;
+        if (lastDetectedStringIndex === cand.index) {
+            weight = 0.8; 
+        }
+        
+        let finalDiff = cand.diff * weight;
+        if (finalDiff < minDiff) {
+            minDiff = finalDiff;
+            closestStr = cand.str;
+            closestIndex = cand.index;
+        }
+    });
+
+    // 못찾았으면 리턴
+    if (!closestStr) return { index: -1 };
 
     if (closestIndex !== -1) {
         lastDetectedStringIndex = closestIndex;
@@ -554,9 +558,7 @@ function findClosestString(frequency) {
 
 function updateTuner(frequency) {
     const match = findClosestString(frequency);
-    
-    // 매칭 실패 시 아무것도 안 함 (널뛰기 방지)
-    if(match.index === -1) return;
+    if (match.index === -1) return; // 감지된 줄이 없으면 무시
 
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
@@ -584,7 +586,7 @@ function updateTuner(frequency) {
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
-    let smoothedCents = centsSmoother.getAverage(); // 이동 평균 사용
+    let smoothedCents = centsSmoother.getAverage(); 
 
     const LOCK_ENTER_THRESHOLD = 3.0; 
     const LOCK_EXIT_THRESHOLD = 6.0;  
