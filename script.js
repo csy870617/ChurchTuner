@@ -60,7 +60,7 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (이동 평균 필터) ---
+// --- 2. 안정화 유틸리티 ---
 class MovingAverage {
     constructor(size) {
         this.size = size;
@@ -94,9 +94,8 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심 변경] 흔들림 보정을 위해 필터 사이즈 증가 (2 -> 8)
-// 줄의 초기 진동을 부드럽게 평균내어 Perfect 고정력을 높임
-const centsSmoother = new MovingAverage(8); 
+// 안정화를 위한 필터 (사이즈 5로 적절히 조절)
+const centsSmoother = new MovingAverage(5); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -106,9 +105,10 @@ let lastSuccessTime = 0;
 let displayCents = 0; 
 let targetCents = 0;
 
-// [소음 방지용]
-let consecutiveNoteCount = 0;
-let lastDetectedNoteFull = "";
+// [신규 변수] 과도응답 및 락킹 제어
+let ignoreTransientCounter = 0; // 처음 튕길 때 무시할 프레임 수
+let isLocked = false;           // 현재 락킹 상태인지
+let lockHoldTimer = 0;          // 락킹 유지 타이머
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -234,14 +234,12 @@ function renderStringButtons(instType) {
     });
 }
 
-function highlightStringBtn(noteName, octave, cents) {
+function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // PERFECT 기준: ±1센트
-    const isPerfect = Math.abs(cents) <= 1.0;
-
     btns.forEach(btn => {
+        const btnKey = btn.dataset.note + btn.dataset.octave;
         const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
 
         btn.classList.remove('detected', 'locked', 'tuned');
@@ -249,7 +247,7 @@ function highlightStringBtn(noteName, octave, cents) {
         btn.style.boxShadow = "none";
 
         if (isCurrentDetected) {
-            if (isPerfect) {
+            if (isLocked) {
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
                 btn.style.boxShadow = "0 0 30px var(--accent-green)";
@@ -327,8 +325,8 @@ async function startTuner() {
         isRunning = true;
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
-        consecutiveNoteCount = 0;
-        lastSuccessTime = 0;
+        ignoreTransientCounter = 0;
+        isLocked = false;
         
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
@@ -362,6 +360,7 @@ function resetUI() {
     currentDisplayedNote = "--"; 
     lastDetectedStringIndex = -1;
     centsSmoother.reset();
+    isLocked = false;
     noteNameEl.classList.remove('active'); noteNameEl.textContent = "--"; octaveEl.textContent = "";
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
@@ -381,14 +380,23 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트
+    // 소음 게이트 (0.04)
     if (rms < 0.04) { 
-         if (Math.abs(targetCents) > 1) {
-             targetCents *= 0.8;
+         // 소리가 끊기면 락킹 해제 및 초기화
+         if (isLocked) {
+            // 소리 끊겨도 잠시 보여주기 위해 바로 끄진 않음 (자연스러움)
+            if (Math.abs(targetCents) > 1) targetCents *= 0.9;
          } else {
-             targetCents = 0;
+             if (Math.abs(targetCents) > 1) targetCents *= 0.8;
+             else targetCents = 0;
          }
-        consecutiveNoteCount = 0;
+         
+         // 완전 무음이 지속되면 초기화
+         if(rms < 0.01) {
+            isLocked = false;
+            ignoreTransientCounter = 0; 
+         }
+         
         requestAnimationFrame(processAudio);
         return;
     }
@@ -470,7 +478,6 @@ function findClosestString(frequency) {
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
         
-        // 줄 인식 접착력 (0.5)
         if (lastDetectedStringIndex === index) {
             weight = 0.5; 
         }
@@ -503,6 +510,13 @@ function findClosestString(frequency) {
 }
 
 function updateTuner(frequency) {
+    // [핵심 1] 과도 응답 무시 (Attack Transient Suppression)
+    // 새로운 소리가 감지되면 처음 6프레임(약 0.1초)은 무시하여 튀는 값 방지
+    if (ignoreTransientCounter < 6) {
+        ignoreTransientCounter++;
+        return; 
+    }
+
     const match = findClosestString(frequency);
     
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
@@ -512,20 +526,13 @@ function updateTuner(frequency) {
 
     const currentNoteKey = match.note + match.octave;
     
-    // [중요] 새로운 노트가 감지되면?
+    // 줄이 바뀌면?
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
-        consecutiveNoteCount = 0;
-        return; 
-    }
-
-    consecutiveNoteCount++;
-    if (consecutiveNoteCount < 2) return; 
-    
-    // [핵심] 노트가 바뀔 때 필터 초기화 (빠른 반응)
-    // 2프레임 연속 감지된 순간 = 확실한 노트 변경 시점
-    if (consecutiveNoteCount === 2) {
+        ignoreTransientCounter = 0; // 새 줄이므로 다시 과도응답 무시 시작
         centsSmoother.reset();
+        isLocked = false;
+        return; 
     }
 
     currentDisplayedNote = match.note;
@@ -536,21 +543,47 @@ function updateTuner(frequency) {
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
-    targetCents = centsSmoother.getAverage(); 
+    let smoothedCents = centsSmoother.getAverage(); 
 
-    renderTextUI(noteName, octave, targetCents, frequency); 
+    // [핵심 2] 스마트 락킹 시스템 (히스테리시스)
+    // - 락킹 진입 조건: 오차 ±1.5센트 이내 (엄격)
+    // - 락킹 유지 조건: 오차 ±4.0센트 이내 (관대) -> 한번 맞으면 잘 안 풀림
+    
+    const LOCK_ENTER_THRESHOLD = 1.5;
+    const LOCK_EXIT_THRESHOLD = 4.0;
+
+    if (isLocked) {
+        // 이미 락킹된 상태
+        if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
+            targetCents = 0; // 화면엔 0으로 고정 (Perfect 유지)
+        } else {
+            isLocked = false; // 너무 벗어나면 락킹 해제
+            targetCents = smoothedCents;
+        }
+    } else {
+        // 락킹 안 된 상태
+        if (Math.abs(smoothedCents) < LOCK_ENTER_THRESHOLD) {
+            isLocked = true;
+            targetCents = 0; // 락킹 시작!
+            playSuccessSound();
+        } else {
+            targetCents = smoothedCents;
+        }
+    }
+
+    renderTextUI(noteName, octave, targetCents, frequency, isLocked); 
 }
 
-function renderTextUI(note, octave, cents, frequency) {
+function renderTextUI(note, octave, cents, frequency, locked) {
     noteNameEl.textContent = note; 
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
-    freqEl.textContent = frequency.toFixed(1) + " Hz";
     
-    const isPerfect = Math.abs(cents) <= 1.0;
+    if(locked) freqEl.textContent = frequency.toFixed(1) + " Hz";
+    else freqEl.textContent = frequency.toFixed(1) + " Hz";
     
     const roundedCents = Math.round(cents);
-    let displayStr = isPerfect ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
+    let displayStr = locked ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
     
     centsEl.textContent = displayStr; 
     centsEl.classList.remove('hidden');
@@ -559,16 +592,19 @@ function renderTextUI(note, octave, cents, frequency) {
     let msg = "TUNING...";
     const style = getComputedStyle(document.body);
 
-    if (isPerfect) {
+    if (locked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-        playSuccessSound();
-    } else if (cents < -1.0) { 
+    } else if (cents < -1.5) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 1.0) { 
+    } else if (cents > 1.5) { 
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
+    } else {
+        // 근접했지만 아직 락킹 전
+        colorVar = style.getPropertyValue('--accent-green');
+        msg = "HOLD...";
     }
 
     guideMsg.textContent = msg;
@@ -577,15 +613,14 @@ function renderTextUI(note, octave, cents, frequency) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
-    highlightStringBtn(note, octave, cents);
+    highlightStringBtn(note, octave, locked);
     
     tuningIndicator.style.backgroundColor = colorVar;
-    if(isPerfect) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
+    if(locked) tuningIndicator.style.boxShadow = `0 0 30px ${colorVar}, 0 0 50px #fff`;
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
 function updateVisualizer() {
-    // 안정화된 값을 조금 더 부드럽게 시각화
     displayCents += (targetCents - displayCents) * 0.4; 
 
     let percentage = 50 + displayCents;
