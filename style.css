@@ -29,42 +29,43 @@ body {
     padding: 24px; position: relative;
 }
 
-/* --- 헤더 (정렬 수정) --- */
+/* --- [수정] 힙하고 세련된 헤더 --- */
 header { 
-    display: flex; 
-    justify-content: center; /* 무조건 중앙 정렬 */
-    align-items: center; 
-    height: 70px; margin-bottom: 10px;
-    position: relative; /* 기준점 */
+    display: flex; justify-content: center; align-items: center; 
+    height: 80px; margin-bottom: 5px;
 }
 
-/* 로고 영역을 하나의 덩어리로 묶음 */
-.logo-container {
-    display: flex; align-items: center; gap: 10px;
-    position: relative;
+.brand-bar {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 10px 25px;
+    background: rgba(255, 255, 255, 0.03); /* 아주 연한 배경 */
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 50px; /* 둥근 캡슐 형태 */
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
 }
 
 .logo-icon {
-    font-size: 1.8rem;
-    filter: drop-shadow(0 0 10px rgba(255,255,255,0.5));
-}
-.logo-text {
-    font-family: 'Inter', sans-serif; font-weight: 900; font-size: 1.5rem; letter-spacing: -0.5px;
-    background: linear-gradient(135deg, #ffffff 0%, #00ff9d 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 15px rgba(0, 255, 157, 0.4));
+    font-size: 1.4rem;
+    filter: drop-shadow(0 0 8px rgba(255,255,255,0.3));
 }
 
-/* 상태 표시등: 제목 바로 옆에 붙임 */
+.logo-text {
+    font-family: 'Inter', sans-serif; font-weight: 900; font-size: 1.2rem; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #aaa); /* 메탈릭 그라데이션 */
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+/* 상태 점: 텍스트 바로 옆에 작고 강렬하게 */
 #status-dot { 
-    width: 8px; height: 8px; border-radius: 50%; 
-    background-color: #444; 
-    margin-top: 6px; /* 시각적 높이 보정 */
-    transition: 0.3s; 
+    width: 6px; height: 6px; border-radius: 50%; 
+    background-color: #333; margin-left: 2px;
+    transition: 0.3s;
 }
 #status-dot.active { 
     background-color: var(--neon-green); 
-    box-shadow: 0 0 15px var(--neon-green), 0 0 30px var(--neon-green); 
+    box-shadow: 0 0 10px var(--neon-green), 0 0 20px var(--neon-green); 
+    transform: scale(1.2); /* 켜지면 살짝 커짐 */
 }
 
 /* --- 메인 디스플레이 --- */

@@ -1,7 +1,8 @@
 //
 // --- 1. 악기 데이터 ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard", hpf: 60, strings: [ 
+    // [수정] 6번줄(82Hz)을 위해 HPF 60Hz -> 50Hz로 완화
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard", hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41 }, { note: "A", octave: 2, freq: 110.00 }, 
         { note: "D", octave: 3, freq: 146.83 }, { note: "G", octave: 3, freq: 196.00 }, 
         { note: "B", octave: 3, freq: 246.94 }, { note: "E", octave: 4, freq: 329.63 } 
@@ -58,8 +59,8 @@ let isRunning = false; let inputSource = null;
 let gainNode = null; let lowPassFilter = null; let highPassFilter = null; let compressor = null;
 
 const BUF_SIZE = 4096; const buf = new Float32Array(BUF_SIZE);
-const freqSmoother = new MedianSmoother(5); 
-const centsSmoother = new MovingAverage(14); 
+const freqSmoother = new MedianSmoother(7); 
+const centsSmoother = new MovingAverage(24); 
 
 let currentDisplayedNote = "--"; let currentDisplayedOctave = "";
 let lastSuccessTime = 0; 
@@ -141,38 +142,16 @@ function generateModalList() {
 }
 function openModal() { modal.classList.remove('hidden'); }
 
-// [수정] 묵직하고 고급스러운 '도-미(C Major)' 느낌 사운드
 function playSuccessSound() {
     if (!audioContext) return;
     const now = Date.now(); if (now - lastSuccessTime < 2000) return; lastSuccessTime = now;
     const t = audioContext.currentTime;
-
-    // OSC 1: 523.25Hz (C5) - 묵직한 베이스 (Triangle Wave)
-    const osc1 = audioContext.createOscillator();
-    const gain1 = audioContext.createGain();
-    osc1.frequency.value = 523.25; 
-    osc1.type = 'triangle'; 
-
-    // OSC 2: 659.25Hz (E5) - 화음 (Sine Wave)
-    const osc2 = audioContext.createOscillator();
-    const gain2 = audioContext.createGain();
-    osc2.frequency.value = 659.25; 
-    osc2.type = 'sine';
-
-    // 볼륨 엔벨롭 (부드러운 어택, 긴 여운)
-    gain1.gain.setValueAtTime(0, t);
-    gain1.gain.linearRampToValueAtTime(0.4, t + 0.1); 
-    gain1.gain.exponentialRampToValueAtTime(0.01, t + 2.0); // 2초간 길게
-
-    gain2.gain.setValueAtTime(0, t);
-    gain2.gain.linearRampToValueAtTime(0.3, t + 0.1);
-    gain2.gain.exponentialRampToValueAtTime(0.01, t + 2.0);
-
-    osc1.connect(gain1).connect(audioContext.destination);
-    osc2.connect(gain2).connect(audioContext.destination);
-
-    osc1.start(t); osc1.stop(t + 2.0);
-    osc2.start(t); osc2.stop(t + 2.0);
+    const osc1 = audioContext.createOscillator(); const gain1 = audioContext.createGain(); osc1.frequency.value = 523.25; osc1.type = 'triangle'; 
+    const osc2 = audioContext.createOscillator(); const gain2 = audioContext.createGain(); osc2.frequency.value = 659.25; osc2.type = 'sine';
+    gain1.gain.setValueAtTime(0, t); gain1.gain.linearRampToValueAtTime(0.4, t + 0.1); gain1.gain.exponentialRampToValueAtTime(0.01, t + 2.0);
+    gain2.gain.setValueAtTime(0, t); gain2.gain.linearRampToValueAtTime(0.3, t + 0.1); gain2.gain.exponentialRampToValueAtTime(0.01, t + 2.0);
+    osc1.connect(gain1).connect(audioContext.destination); osc2.connect(gain2).connect(audioContext.destination);
+    osc1.start(t); osc1.stop(t + 2.0); osc2.start(t); osc2.stop(t + 2.0);
 }
 
 function toggleTuner() { isRunning ? stopTuner() : startTuner(); }
@@ -183,13 +162,11 @@ async function startTuner() {
         if(audioContext.state === 'suspended') await audioContext.resume();
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } });
         inputSource = audioContext.createMediaStreamSource(mediaStream);
-        
         gainNode = audioContext.createGain(); gainNode.gain.value = 5.0;
         compressor = audioContext.createDynamicsCompressor(); compressor.threshold.value = -50; compressor.ratio.value = 8;
         highPassFilter = audioContext.createBiquadFilter(); highPassFilter.type = "highpass";
         lowPassFilter = audioContext.createBiquadFilter(); lowPassFilter.type = "lowpass";
         analyser = audioContext.createAnalyser(); analyser.fftSize = BUF_SIZE;
-
         inputSource.connect(gainNode).connect(compressor).connect(highPassFilter).connect(lowPassFilter).connect(analyser);
         applyFilters();
         isRunning = true;
@@ -202,7 +179,8 @@ async function startTuner() {
 function applyFilters() {
     if(!highPassFilter) return;
     const data = instruments[currentInstrument];
-    highPassFilter.frequency.value = (currentInstrument === 'guitar') ? 60 : (data.hpf || 30);
+    // [수정] 6번줄(82Hz)을 위해 Guitar HPF 50Hz로 설정
+    highPassFilter.frequency.value = (currentInstrument === 'guitar') ? 50 : (data.hpf || 30);
     lowPassFilter.frequency.value = 5000; 
 }
 
@@ -276,8 +254,10 @@ function findNote(frequency) {
         let diff2 = Math.abs(frequency - str.freq*2);
         
         let bestDiff = Infinity;
-        if(frequency >= str.freq*0.85 && frequency <= str.freq*1.15) bestDiff = diff1;
-        else if(frequency >= (str.freq*2)*0.85 && frequency <= (str.freq*2)*1.15) bestDiff = diff2;
+        // [수정] 6번줄 인식을 위해 윈도우를 ±15% -> ±20%로 확장 (82Hz * 0.8 = 65Hz / 82Hz * 1.2 = 98Hz)
+        // 5번줄(110Hz)과는 겹치지 않음
+        if(frequency >= str.freq*0.80 && frequency <= str.freq*1.20) bestDiff = diff1;
+        else if(frequency >= (str.freq*2)*0.80 && frequency <= (str.freq*2)*1.20) bestDiff = diff2;
         
         if(bestDiff !== Infinity) {
              let weight = (stableStringIndex === idx) ? 0.5 : 1.0;
@@ -310,11 +290,8 @@ function updateTuner(freq) {
     currentDisplayedNote = match.note; currentDisplayedOctave = match.octave;
     centsSmoother.add(cents); let smoothed = centsSmoother.getAverage();
 
-    // [핵심] 바늘 튐 방지: 락킹되면 무조건 0으로 고정
-    if(isLocked) { 
-        if(Math.abs(smoothed) > 20.0) isLocked = false; 
-        else targetAngle = 0; // 강제 0점 조준
-    } else {
+    if(isLocked) { if(Math.abs(smoothed) > 20.0) isLocked = false; else targetAngle = 0; } 
+    else {
         targetAngle = Math.max(-90, Math.min(90, smoothed * 1.8));
         if(Math.abs(smoothed) < 3.0) { isLocked = true; targetAngle = 0; playSuccessSound(); }
     }
@@ -340,7 +317,7 @@ function renderUI(note, oct, cents, freq) {
 }
 
 function updateVisualizer() {
-    displayAngle += ((isLocked ? 0 : targetAngle) - displayAngle) * 0.15;
+    displayAngle += ((isLocked ? 0 : targetAngle) - displayAngle) * 0.08; 
     if(needleGroup) needleGroup.setAttribute('transform', `rotate(${displayAngle}, 100, 100)`);
     requestAnimationFrame(updateVisualizer);
 }
