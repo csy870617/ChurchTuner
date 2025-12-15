@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF 50Hz, 1번줄 오인식 방지를 위한 주파수 윈도우 로직 강화
+    // HPF 50Hz 유지
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -541,16 +541,13 @@ function findClosestString(frequency) {
     candidates.forEach(cand => {
         let weight = 1.0;
         
-        // [핵심] 고음줄 우선순위 부여 (1번줄이 5번줄 배음으로 오해받는 것 방지)
-        // 1번줄(index 5)이나 2번줄(index 4)이면 가중치로 우선권 부여 (오차를 줄여줌)
-        // (기타는 보통 6번줄이 index 0, 1번줄이 index 5일 수 있으나 여기 데이터는 num:6 ~ num:1)
-        // 데이터상: 6번줄(E2) = index 0, 1번줄(E4) = index 5
-        if (cand.index >= 4) { // 1번, 2번줄
-             weight = 0.6; // 오차를 더 작게 계산해서 우선 선택되게 함
+        // 고음줄 우선순위
+        if (cand.index >= 4) { 
+             weight = 0.6; 
         }
 
         if (stableStringIndex !== -1 && stableStringIndex === cand.index) {
-            weight = 0.5; // 현재 줄 유지력
+            weight = 0.5; 
         }
         
         let finalDiff = cand.diff * weight;
@@ -623,9 +620,8 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     let smoothedCents = centsSmoother.getAverage(); 
 
     const LOCK_ENTER_THRESHOLD = 3.0; 
-    // [중요] 락킹 탈출 범위 대폭 확대 (±12.0)
-    // 1,2번줄 흔들림이 심해도 락킹을 풀지 않고 버팀 (데드존)
-    const LOCK_EXIT_THRESHOLD = 12.0;  
+    // [중요] 락킹 탈출 범위 대폭 확대 (±25.0) -> 모든 줄 흔들림 차단
+    const LOCK_EXIT_THRESHOLD = 25.0;  
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
