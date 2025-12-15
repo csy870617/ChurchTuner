@@ -1,7 +1,8 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 30, strings: [ 
+    // [수정] 기타 HPF 50Hz (6번줄 보호) / 고음역대 오인식 방지
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
         { note: "D", octave: 3, freq: 146.83, num: 4 }, 
@@ -9,7 +10,7 @@ const instruments = {
         { note: "B", octave: 3, freq: 246.94, num: 2 }, 
         { note: "E", octave: 4, freq: 329.63, num: 1 } 
     ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], hpf: 25, strings: [ 
+    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], hpf: 28, strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
@@ -60,8 +61,8 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 ---
-class MovingAverage {
+// --- 2. 안정화 유틸리티 (이동 평균 + 중간값 필터) ---
+class Smoother {
     constructor(size) {
         this.size = size;
         this.buffer = [];
@@ -70,10 +71,22 @@ class MovingAverage {
         this.buffer.push(value);
         if (this.buffer.length > this.size) this.buffer.shift();
     }
-    getAverage() {
+    // [핵심] 튀는 값 제거(Median) 후 평균(Average) 계산 -> 널뛰기 방지
+    getSmoothedValue() {
         if (this.buffer.length === 0) return 0;
-        const sum = this.buffer.reduce((a, b) => a + b, 0);
-        return sum / this.buffer.length;
+        
+        // 1. 복사 후 정렬 (원본 보존)
+        const sorted = [...this.buffer].sort((a, b) => a - b);
+        
+        // 2. 상하위 20% 절삭 (튀는 값 제거)
+        const crop = Math.floor(sorted.length * 0.2);
+        const cropped = sorted.slice(crop, sorted.length - crop);
+        
+        if (cropped.length === 0) return sorted[Math.floor(sorted.length/2)];
+
+        // 3. 남은 값들의 평균
+        const sum = cropped.reduce((a, b) => a + b, 0);
+        return sum / cropped.length;
     }
     reset() { this.buffer = []; }
 }
@@ -95,9 +108,8 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심 변경 1] 데이터 필터 크기 증가 (12 -> 16)
-// 데이터 자체의 미세한 떨림을 더 많이 평균내어 잠재움
-const centsSmoother = new MovingAverage(16); 
+// [핵심] 필터 사이즈 15 (충분한 샘플 확보로 널뛰기 방지)
+const centsSmoother = new Smoother(15); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -492,9 +504,11 @@ function findClosestString(frequency) {
     let closestIndex = -1;
 
     instData.strings.forEach((str, index) => {
+        // [수정] 접착력(Weight)을 아주 약하게 조정 (0.8)
+        // E코드(330Hz)가 A코드(110Hz)의 접착력에 빨려들어가지 않도록 함
         let weight = 1.0;
         if (lastDetectedStringIndex === index) {
-            weight = 0.5; 
+            weight = 0.8; 
         }
 
         let diff = Math.abs(frequency - str.freq);
@@ -547,8 +561,9 @@ function updateTuner(frequency) {
 }
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
+    // [핵심] Smoother가 튀는 값을 1차로 거르고, 부드러운 값만 줌
     centsSmoother.add(rawCents);
-    let smoothedCents = centsSmoother.getAverage(); 
+    let smoothedCents = centsSmoother.getSmoothedValue(); 
 
     // 진입 3.0, 탈출 6.0
     const LOCK_ENTER_THRESHOLD = 3.0; 
@@ -618,10 +633,9 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [핵심 변경 2] 시각적 보정 (Visual Smoothing)
-// 바늘이 움직이는 속도를 극단적으로 낮춰 튀는 현상 제거 (0.12)
+// [핵심] 바늘 애니메이션: Lerp를 사용해 좌우로만 부드럽게 이동
 function updateVisualizer() {
-    const lerpFactor = isLocked ? 0.2 : 0.12; // 천천히, 우아하게 이동
+    const lerpFactor = isLocked ? 0.4 : 0.15; // 천천히 이동
     displayCents += (targetCents - displayCents) * lerpFactor; 
 
     let percentage = 50 + displayCents;
