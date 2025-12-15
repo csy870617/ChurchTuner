@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF 50Hz: 저음 잡음 제거
+    // HPF 50Hz: 저음역대 잡음 및 간섭 제거
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -61,7 +61,7 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (중간값 필터 - 튀는 값 제거용) ---
+// --- 2. 안정화 유틸리티 (중간값 필터) ---
 class MedianSmoother {
     constructor(size) {
         this.size = size;
@@ -73,9 +73,8 @@ class MedianSmoother {
     }
     getValue() {
         if (this.buffer.length === 0) return 0;
-        // 1. 복사 후 정렬
         const sorted = [...this.buffer].sort((a, b) => a - b);
-        // 2. 중간값 반환 (튀는 값 무시의 최고봉)
+        // 중간값을 반환하여 튀는 값(Outlier) 제거
         return sorted[Math.floor(sorted.length / 2)];
     }
     reset() { this.buffer = []; }
@@ -98,10 +97,11 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심] 주파수 자체를 안정화하는 필터 (튀는 Hz 제거)
+// [필터 설정]
+// 주파수 안정화 (Hz)
 const freqSmoother = new MedianSmoother(5); 
-// [핵심] 바늘(Cents)을 부드럽게 하는 필터 (널뛰기 방지)
-const centsSmoother = new MedianSmoother(10);
+// 바늘 안정화 (Cents) - 널뛰기 방지용
+const centsSmoother = new MedianSmoother(15); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -243,7 +243,7 @@ function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // PERFECT 기준 ±3.0센트
+    // PERFECT 기준: ±3.0센트 (넉넉함)
     const isPerfect = Math.abs(targetCents) <= 3.0;
 
     btns.forEach(btn => {
@@ -315,7 +315,7 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // [수정] 게인 3.0으로 하향 조정 (왜곡 방지)
+        // 게인 3.0 (적절한 증폭)
         gainNode = audioContext.createGain();
         gainNode.gain.value = 3.0;
 
@@ -363,7 +363,7 @@ function applyInstrumentFilter() {
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
-    // LPF 5000Hz (고음 개방)
+    // 고음역대 개방 (5000Hz)
     let maxFreq = instData.range ? instData.range[1] : 1000;
     if (currentInstrument === 'guitar' || currentInstrument === 'ukulele') {
         maxFreq = 5000; 
@@ -426,7 +426,7 @@ function processAudio() {
 
     const pitch = yinPitchDetection(buf, audioContext.sampleRate);
     if (pitch !== -1) {
-        // [중요] 1차 필터: 주파수 자체를 안정화 (튀는 Hz 제거)
+        // [1차 필터] Hz 값의 튀는 것을 제거
         freqSmoother.add(pitch);
         const smoothPitch = freqSmoother.getValue();
         updateTuner(smoothPitch);
@@ -505,16 +505,16 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
+        // 접착력
         if (lastDetectedStringIndex === index) {
-            weight = 0.8; // 약간의 접착력
+            weight = 0.8; 
         }
 
-        // [중요] 3배음 체크 완전 삭제 (E와 A 혼동 방지)
-        // 오직 2배음(옥타브)만 약하게 보정
+        // [핵심] 배음 로직 완전 삭제 (단순 거리 비교)
         let diff = Math.abs(frequency - str.freq);
-        const diff2x = Math.abs(frequency - (str.freq * 2));
         
-        // 2배음이면 살짝 가중치 둬서 기본음으로 유도 (선택 사항)
+        // 2배음(옥타브) 정도만 약하게 보정 (선택적)
+        const diff2x = Math.abs(frequency - (str.freq * 2));
         if(diff2x < 5) diff = diff2x / 5;
 
         diff = diff * weight;
@@ -566,7 +566,7 @@ function updateTuner(frequency) {
 }
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
-    // [중요] 2차 필터: Cents 값을 중간값 필터로 안정화 (널뛰기 완전 방지)
+    // [2차 필터] 바늘 움직임 안정화
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getValue(); 
 
@@ -638,10 +638,14 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [핵심] 바늘 속도 조절
+// [핵심] 시각적 강제 고정 (Visual Hard-Lock)
+// 락킹 상태에서는 바늘이 절대 흔들리지 않음 (0)
 function updateVisualizer() {
-    const lerpFactor = isLocked ? 0.3 : 0.15; 
-    displayCents += (targetCents - displayCents) * lerpFactor; 
+    if (isLocked) {
+        displayCents = 0;
+    } else {
+        displayCents += (targetCents - displayCents) * 0.15; // 부드러운 이동
+    }
 
     let percentage = 50 + displayCents;
     if (percentage < 5) percentage = 5; 
