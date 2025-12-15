@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF 50Hz 유지
+    // HPF 50Hz: 저음 잡음 제거
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -505,7 +505,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [핵심] 3배음 제거 로직으로 간소화
+// [핵심] 3배음 이상 무시 -> 2번, 1번줄 오인식 원천 차단
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -522,23 +522,31 @@ function findClosestString(frequency) {
     let closestStr = null;
     let closestIndex = -1;
 
-    // [1차 필터링] 주파수 범위 ±30% (이전보다 약간 여유있게, 그러나 배음은 차단)
+    // [1차 필터링] 주파수 범위 ±30%
     const candidates = [];
     instData.strings.forEach((str, index) => {
-        // [중요] 배음 확인 (Harmonic Check)
-        // 2배음(Octave)만 허용하고, 3배음, 4배음은 아예 검사하지 않음!
-        // 이로써 5번줄(A)의 3배음이 1번줄(E)로 둔갑하는 것을 원천 봉쇄함.
+        // [중요] 2배음(Octave)까지만 허용
+        // 3배음, 4배음 체크는 절대 하지 않음! (6번줄->2번줄, 5번줄->1번줄 오인식의 주범)
         
-        let checkFreq = frequency;
-        // 2배음(옥타브) 체크
-        if (Math.abs(frequency - str.freq * 2) < 10) {
-            checkFreq = frequency / 2;
-        }
-        // 3배음, 4배음 체크 삭제 (삭제됨)
+        let diff1 = Math.abs(frequency - str.freq);        // 기본음
+        let diff2 = Math.abs(frequency - (str.freq * 2));  // 2배음 (옥타브)
 
-        // 범위 체크
-        if (checkFreq >= str.freq * 0.7 && checkFreq <= str.freq * 1.3) {
-            candidates.push({ str, index, diff: Math.abs(checkFreq - str.freq) });
+        // 둘 중 더 가까운 것 선택 (단, 둘 다 멀면 탈락)
+        // diff1이 가까우면 기본음, diff2가 가까우면 2배음
+        
+        let bestDiff = Infinity;
+        
+        // 기본음과 비슷하면
+        if (frequency >= str.freq * 0.7 && frequency <= str.freq * 1.3) {
+            bestDiff = diff1;
+        } 
+        // 2배음과 비슷하면 (164Hz -> 82Hz Low E)
+        else if (frequency >= (str.freq * 2) * 0.7 && frequency <= (str.freq * 2) * 1.3) {
+            bestDiff = diff2; // 오차는 작게 잡아주지만, 실제로는 옥타브 위
+        }
+
+        if (bestDiff !== Infinity) {
+            candidates.push({ str, index, diff: bestDiff });
         }
     });
 
@@ -547,8 +555,8 @@ function findClosestString(frequency) {
     candidates.forEach(cand => {
         let weight = 1.0;
         
-        // 고음줄(1,2번) 우선순위 (필요시)
-        if (cand.index >= 4) weight = 0.8; 
+        // 고음줄(1,2번) 우선순위 (미세하게)
+        if (cand.index >= 4) weight = 0.9; 
 
         if (stableStringIndex !== -1 && stableStringIndex === cand.index) {
             weight = 0.5; 
@@ -591,9 +599,9 @@ function updateTuner(frequency) {
     pendingStringIndex = -1;
     stringStabilityCounter = 0;
     
-    // 센트 계산 시 2배음 보정 (3배음 로직 삭제됨)
+    // 센트 계산: 2배음 보정만 수행
     let calcFreq = frequency;
-    if (Math.abs(frequency - match.targetFreq * 2) < 10) {
+    if (Math.abs(frequency - match.targetFreq * 2) < 20) {
         calcFreq = frequency / 2;
     }
 
@@ -603,7 +611,6 @@ function updateTuner(frequency) {
     while (rawCents < -600) rawCents += 1200;
 
     const currentNoteKey = match.note + match.octave;
-    
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
@@ -626,8 +633,7 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     let smoothedCents = centsSmoother.getAverage(); 
 
     const LOCK_ENTER_THRESHOLD = 3.0; 
-    // [중요] 락킹 탈출 범위 ±25.0 (저음줄 흔들림 커버)
-    const LOCK_EXIT_THRESHOLD = 25.0;  
+    const LOCK_EXIT_THRESHOLD = 25.0; // 데드존 유지
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
