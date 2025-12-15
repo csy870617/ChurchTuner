@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Church Tuner Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    
+    <link rel="stylesheet" href="style.css?v=2.0">
 </head>
 <body>
     <div class="app-container">
@@ -13,8 +14,6 @@
             <div class="logo-area">
                 <span class="logo-icon">✝️</span>
                 <span class="logo-text">CHURCH TUNER</span>
-            </div>
-            <div class="status-indicator">
                 <div id="status-dot"></div>
             </div>
         </header>
@@ -58,8 +57,8 @@
                 <div class="instrument-selector">
                     <div class="inst-pill active" data-type="guitar">🎸 GUITAR</div>
                     <div class="inst-pill" data-type="bass">🎸 BASS</div>
-                    <div class="inst-pill" id="dynamic-inst-card" data-type="ukulele">
-                        <span id="dyn-icon">🌴</span> <span id="dyn-name">UKULELE</span>
+                    <div class="inst-pill" id="dynamic-inst-card" data-type="select">
+                        <span id="dyn-icon">🎵</span> <span id="dyn-name">SELECT</span>
                     </div>
                 </div>
             </div>
@@ -69,13 +68,13 @@
     <div id="inst-modal" class="modal hidden">
         <div class="modal-glass">
             <div class="modal-header">
-                <h3>SELECT MODE</h3>
+                <h3>SELECT INSTRUMENT</h3>
                 <button id="close-modal">✕</button>
             </div>
             <div id="modal-list" class="modal-list"></div>
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2.0"></script>
 </body>
 </html>
