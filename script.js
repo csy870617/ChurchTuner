@@ -94,8 +94,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 안정화를 위한 필터 (사이즈 5로 적절히 조절)
-const centsSmoother = new MovingAverage(5); 
+// [핵심 변경] 스무딩 필터 크기 증가 (6 -> 9)
+// 줄 튕길 때의 초기 급발진(피치 튐)을 부드럽게 평균내어 잡아줍니다.
+const centsSmoother = new MovingAverage(9); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -105,10 +106,9 @@ let lastSuccessTime = 0;
 let displayCents = 0; 
 let targetCents = 0;
 
-// [신규 변수] 과도응답 및 락킹 제어
-let ignoreTransientCounter = 0; // 처음 튕길 때 무시할 프레임 수
-let isLocked = false;           // 현재 락킹 상태인지
-let lockHoldTimer = 0;          // 락킹 유지 타이머
+let isLocked = false;
+let consecutiveNoteCount = 0;
+let lastDetectedNoteFull = "";
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -325,7 +325,7 @@ async function startTuner() {
         isRunning = true;
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
-        ignoreTransientCounter = 0;
+        consecutiveNoteCount = 0;
         isLocked = false;
         
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
@@ -380,21 +380,17 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트 (0.04)
-    if (rms < 0.04) { 
-         // 소리가 끊기면 락킹 해제 및 초기화
+    // [중요] 노이즈 게이트 상향 (0.05) - 외부 소음 차단
+    if (rms < 0.05) { 
          if (isLocked) {
-            // 소리 끊겨도 잠시 보여주기 위해 바로 끄진 않음 (자연스러움)
-            if (Math.abs(targetCents) > 1) targetCents *= 0.9;
+             if (Math.abs(targetCents) > 1) targetCents *= 0.9;
          } else {
              if (Math.abs(targetCents) > 1) targetCents *= 0.8;
              else targetCents = 0;
          }
          
-         // 완전 무음이 지속되면 초기화
          if(rms < 0.01) {
             isLocked = false;
-            ignoreTransientCounter = 0; 
          }
          
         requestAnimationFrame(processAudio);
@@ -407,7 +403,8 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.10; 
+    // [중요] YIN 임계값 강화 (0.10 -> 0.08) - 잡음 필터링
+    const threshold = 0.08; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -433,6 +430,7 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
+        // [이중 체크] 신뢰도가 낮으면(값이 크면) 무시
         if (yinBuffer[tauEstimate] > 0.08) return -1; 
 
         const x0 = tauEstimate;
@@ -510,13 +508,6 @@ function findClosestString(frequency) {
 }
 
 function updateTuner(frequency) {
-    // [핵심 1] 과도 응답 무시 (Attack Transient Suppression)
-    // 새로운 소리가 감지되면 처음 6프레임(약 0.1초)은 무시하여 튀는 값 방지
-    if (ignoreTransientCounter < 6) {
-        ignoreTransientCounter++;
-        return; 
-    }
-
     const match = findClosestString(frequency);
     
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
@@ -526,14 +517,19 @@ function updateTuner(frequency) {
 
     const currentNoteKey = match.note + match.octave;
     
-    // 줄이 바뀌면?
+    // 줄이 바뀌면 즉시 리셋 (반응성)
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
-        ignoreTransientCounter = 0; // 새 줄이므로 다시 과도응답 무시 시작
-        centsSmoother.reset();
+        consecutiveNoteCount = 0;
+        
         isLocked = false;
+        centsSmoother.reset(); 
+        
         return; 
     }
+
+    consecutiveNoteCount++;
+    if (consecutiveNoteCount < 2) return; 
 
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
@@ -545,26 +541,22 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    // [핵심 2] 스마트 락킹 시스템 (히스테리시스)
-    // - 락킹 진입 조건: 오차 ±1.5센트 이내 (엄격)
-    // - 락킹 유지 조건: 오차 ±4.0센트 이내 (관대) -> 한번 맞으면 잘 안 풀림
-    
+    // [스마트 락킹 유지]
+    // 진입 1.5센트, 탈출 4.0센트 -> 한번 맞으면 끈끈하게 유지
     const LOCK_ENTER_THRESHOLD = 1.5;
     const LOCK_EXIT_THRESHOLD = 4.0;
 
     if (isLocked) {
-        // 이미 락킹된 상태
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; // 화면엔 0으로 고정 (Perfect 유지)
+            targetCents = 0; 
         } else {
-            isLocked = false; // 너무 벗어나면 락킹 해제
+            isLocked = false; 
             targetCents = smoothedCents;
         }
     } else {
-        // 락킹 안 된 상태
         if (Math.abs(smoothedCents) < LOCK_ENTER_THRESHOLD) {
             isLocked = true;
-            targetCents = 0; // 락킹 시작!
+            targetCents = 0;
             playSuccessSound();
         } else {
             targetCents = smoothedCents;
@@ -579,8 +571,7 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
     
-    if(locked) freqEl.textContent = frequency.toFixed(1) + " Hz";
-    else freqEl.textContent = frequency.toFixed(1) + " Hz";
+    freqEl.textContent = frequency.toFixed(1) + " Hz";
     
     const roundedCents = Math.round(cents);
     let displayStr = locked ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
@@ -602,7 +593,6 @@ function renderTextUI(note, octave, cents, frequency, locked) {
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
     } else {
-        // 근접했지만 아직 락킹 전
         colorVar = style.getPropertyValue('--accent-green');
         msg = "HOLD...";
     }
