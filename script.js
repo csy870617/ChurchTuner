@@ -94,12 +94,13 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 반응성 확보를 위해 평균 필터 사이즈 최소화 (3 -> 2)
+// 반응성 확보: 평균 필터 사이즈 최소화 (2)
 const centsSmoother = new MovingAverage(2); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let lastDetectedStringIndex = -1; 
+let lastSuccessTime = 0; // 성공음 중복 방지 타이머
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -232,13 +233,11 @@ function renderStringButtons(instType) {
     });
 }
 
-// [핵심 수정] 하이라이트 로직 엄격화
 function highlightStringBtn(noteName, octave, cents) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // [중요] 녹색불 기준을 ±1센트로 축소 (기존 5센트 -> 1센트)
-    // 1센트만 벗어나도 즉시 불 꺼짐 (고정 X)
+    // [중요] PERFECT 기준 ±1센트
     const isPerfect = Math.abs(cents) <= 1.0;
 
     btns.forEach(btn => {
@@ -252,12 +251,39 @@ function highlightStringBtn(noteName, octave, cents) {
             if (isPerfect) {
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
-                btn.style.boxShadow = "0 0 25px var(--accent-green)";
+                // 녹색 그림자 강조
+                btn.style.boxShadow = "0 0 30px var(--accent-green)";
             } else {
                 btn.classList.add('detected'); 
             }
         }
     });
+}
+
+function playSuccessSound() {
+    if (!audioContext) return;
+    
+    // 2초 쿨타임 (띵동~ 남발 방지)
+    const now = Date.now();
+    if (now - lastSuccessTime < 2000) return;
+    lastSuccessTime = now;
+
+    const t = audioContext.currentTime;
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    
+    // 부드러운 사인파 (880Hz = A5)
+    osc.type = 'sine'; 
+    osc.frequency.setValueAtTime(880, t); 
+    
+    gain.gain.setValueAtTime(0.05, t); 
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    
+    osc.connect(gain); 
+    gain.connect(audioContext.destination);
+    
+    osc.start(); 
+    osc.stop(t + 0.3);
 }
 
 // --- 5. 오디오 처리 ---
@@ -304,6 +330,7 @@ async function startTuner() {
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
         consecutiveNoteCount = 0;
+        lastSuccessTime = 0;
         
         startBtn.classList.add('stop'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
@@ -445,10 +472,9 @@ function findClosestString(frequency) {
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
         
-        // [수정] 줄 선택 접착력 대폭 감소 (0.7 -> 0.9) 
-        // 거의 차이 없이 주파수만으로 즉각 판별 -> 고정 현상 제거
+        // [수정] 줄 인식 접착력 복구 (0.5) - 요청하신 대로!
         if (lastDetectedStringIndex === index) {
-            weight = 0.9; 
+            weight = 0.5; 
         }
 
         let diff = Math.abs(frequency - str.freq);
@@ -507,7 +533,7 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     targetCents = centsSmoother.getAverage(); 
 
-    renderTextUI(noteName, octave, targetCents, frequency); // 소수점 단위 전달
+    renderTextUI(noteName, octave, targetCents, frequency); 
 }
 
 function renderTextUI(note, octave, cents, frequency) {
@@ -516,10 +542,9 @@ function renderTextUI(note, octave, cents, frequency) {
     noteNameEl.classList.add('active');
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
-    // [중요] PERFECT 판정 기준: ±1센트 (엄격함)
+    // PERFECT 기준: ±1센트
     const isPerfect = Math.abs(cents) <= 1.0;
     
-    // 디스플레이는 반올림해서 보여주지만, 내부 로직은 소수점까지 체크
     const roundedCents = Math.round(cents);
     let displayStr = isPerfect ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
     
@@ -533,10 +558,14 @@ function renderTextUI(note, octave, cents, frequency) {
     if (isPerfect) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -1.0) { // 기준 강화
+        
+        // [추가] 확실한 인식: 소리 재생
+        playSuccessSound();
+        
+    } else if (cents < -1.0) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 1.0) { // 기준 강화
+    } else if (cents > 1.0) { 
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
     }
