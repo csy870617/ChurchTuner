@@ -505,7 +505,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [핵심] 줄 선택 (우선순위 역전 + 윈도우 축소)
+// [핵심] 3배음 제거 로직으로 간소화
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -522,16 +522,22 @@ function findClosestString(frequency) {
     let closestStr = null;
     let closestIndex = -1;
 
+    // [1차 필터링] 주파수 범위 ±30% (이전보다 약간 여유있게, 그러나 배음은 차단)
     const candidates = [];
     instData.strings.forEach((str, index) => {
-        // 배음 통합
+        // [중요] 배음 확인 (Harmonic Check)
+        // 2배음(Octave)만 허용하고, 3배음, 4배음은 아예 검사하지 않음!
+        // 이로써 5번줄(A)의 3배음이 1번줄(E)로 둔갑하는 것을 원천 봉쇄함.
+        
         let checkFreq = frequency;
-        if (Math.abs(frequency - str.freq * 2) < 10) checkFreq = frequency / 2;
-        else if (Math.abs(frequency - str.freq * 3) < 10) checkFreq = frequency / 3;
-        else if (Math.abs(frequency - str.freq * 4) < 10) checkFreq = frequency / 4;
+        // 2배음(옥타브) 체크
+        if (Math.abs(frequency - str.freq * 2) < 10) {
+            checkFreq = frequency / 2;
+        }
+        // 3배음, 4배음 체크 삭제 (삭제됨)
 
-        // [중요] 주파수 윈도우 축소 (±20%)
-        if (checkFreq >= str.freq * 0.8 && checkFreq <= str.freq * 1.2) {
+        // 범위 체크
+        if (checkFreq >= str.freq * 0.7 && checkFreq <= str.freq * 1.3) {
             candidates.push({ str, index, diff: Math.abs(checkFreq - str.freq) });
         }
     });
@@ -541,10 +547,8 @@ function findClosestString(frequency) {
     candidates.forEach(cand => {
         let weight = 1.0;
         
-        // 고음줄 우선순위
-        if (cand.index >= 4) { 
-             weight = 0.6; 
-        }
+        // 고음줄(1,2번) 우선순위 (필요시)
+        if (cand.index >= 4) weight = 0.8; 
 
         if (stableStringIndex !== -1 && stableStringIndex === cand.index) {
             weight = 0.5; 
@@ -587,10 +591,11 @@ function updateTuner(frequency) {
     pendingStringIndex = -1;
     stringStabilityCounter = 0;
     
-    // 센트 계산 시 배음 보정
+    // 센트 계산 시 2배음 보정 (3배음 로직 삭제됨)
     let calcFreq = frequency;
-    let ratio = Math.round(frequency / match.targetFreq);
-    if (ratio > 1) calcFreq = frequency / ratio;
+    if (Math.abs(frequency - match.targetFreq * 2) < 10) {
+        calcFreq = frequency / 2;
+    }
 
     let rawCents = 1200 * Math.log2(calcFreq / match.targetFreq);
     
@@ -598,6 +603,7 @@ function updateTuner(frequency) {
     while (rawCents < -600) rawCents += 1200;
 
     const currentNoteKey = match.note + match.octave;
+    
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
@@ -620,12 +626,12 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     let smoothedCents = centsSmoother.getAverage(); 
 
     const LOCK_ENTER_THRESHOLD = 3.0; 
-    // [중요] 락킹 탈출 범위 대폭 확대 (±25.0) -> 모든 줄 흔들림 차단
+    // [중요] 락킹 탈출 범위 ±25.0 (저음줄 흔들림 커버)
     const LOCK_EXIT_THRESHOLD = 25.0;  
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; // 완전 고정 (Dead Zone)
+            targetCents = 0; // 완전 고정
         } else {
             isLocked = false; 
             targetCents = smoothedCents;
@@ -688,10 +694,10 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [핵심] 락킹 시 시각적 완전 정지
+// [핵심] 시각적 강제 고정
 function updateVisualizer() {
     if (isLocked) {
-        displayCents = 0; // 강제 0
+        displayCents = 0;
     } else {
         displayCents += (targetCents - displayCents) * 0.15; 
     }
