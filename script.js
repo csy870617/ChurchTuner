@@ -94,14 +94,13 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심 변경] 흔들림 보정을 위해 필터 사이즈 증가 (2 -> 8)
-// 줄의 초기 진동을 부드럽게 평균내어 Perfect 고정력을 높임
-const centsSmoother = new MovingAverage(8); 
+// 반응성 확보: 평균 필터 사이즈 최소화 (2)
+const centsSmoother = new MovingAverage(2); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
 let lastDetectedStringIndex = -1; 
-let lastSuccessTime = 0; 
+let lastSuccessTime = 0; // 성공음 중복 방지 타이머
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -238,7 +237,7 @@ function highlightStringBtn(noteName, octave, cents) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // PERFECT 기준: ±1센트
+    // [중요] PERFECT 기준 ±1센트
     const isPerfect = Math.abs(cents) <= 1.0;
 
     btns.forEach(btn => {
@@ -252,6 +251,7 @@ function highlightStringBtn(noteName, octave, cents) {
             if (isPerfect) {
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
+                // 녹색 그림자 강조
                 btn.style.boxShadow = "0 0 30px var(--accent-green)";
             } else {
                 btn.classList.add('detected'); 
@@ -263,6 +263,7 @@ function highlightStringBtn(noteName, octave, cents) {
 function playSuccessSound() {
     if (!audioContext) return;
     
+    // 2초 쿨타임 (띵동~ 남발 방지)
     const now = Date.now();
     if (now - lastSuccessTime < 2000) return;
     lastSuccessTime = now;
@@ -271,6 +272,7 @@ function playSuccessSound() {
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
     
+    // 부드러운 사인파 (880Hz = A5)
     osc.type = 'sine'; 
     osc.frequency.setValueAtTime(880, t); 
     
@@ -381,7 +383,7 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트
+    // 소음 게이트 (0.04)
     if (rms < 0.04) { 
          if (Math.abs(targetCents) > 1) {
              targetCents *= 0.8;
@@ -470,7 +472,7 @@ function findClosestString(frequency) {
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
         
-        // 줄 인식 접착력 (0.5)
+        // [수정] 줄 인식 접착력 복구 (0.5) - 요청하신 대로!
         if (lastDetectedStringIndex === index) {
             weight = 0.5; 
         }
@@ -512,7 +514,6 @@ function updateTuner(frequency) {
 
     const currentNoteKey = match.note + match.octave;
     
-    // [중요] 새로운 노트가 감지되면?
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
@@ -521,12 +522,6 @@ function updateTuner(frequency) {
 
     consecutiveNoteCount++;
     if (consecutiveNoteCount < 2) return; 
-    
-    // [핵심] 노트가 바뀔 때 필터 초기화 (빠른 반응)
-    // 2프레임 연속 감지된 순간 = 확실한 노트 변경 시점
-    if (consecutiveNoteCount === 2) {
-        centsSmoother.reset();
-    }
 
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
@@ -547,6 +542,7 @@ function renderTextUI(note, octave, cents, frequency) {
     noteNameEl.classList.add('active');
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
+    // PERFECT 기준: ±1센트
     const isPerfect = Math.abs(cents) <= 1.0;
     
     const roundedCents = Math.round(cents);
@@ -562,7 +558,10 @@ function renderTextUI(note, octave, cents, frequency) {
     if (isPerfect) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
+        
+        // [추가] 확실한 인식: 소리 재생
         playSuccessSound();
+        
     } else if (cents < -1.0) { 
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
@@ -585,7 +584,6 @@ function renderTextUI(note, octave, cents, frequency) {
 }
 
 function updateVisualizer() {
-    // 안정화된 값을 조금 더 부드럽게 시각화
     displayCents += (targetCents - displayCents) * 0.4; 
 
     let percentage = 50 + displayCents;
