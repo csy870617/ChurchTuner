@@ -1,17 +1,15 @@
 :root {
-    /* 더 깊이감 있는 다크 배경 */
     --bg-gradient: radial-gradient(circle at center top, #1a1a2e, #000000);
     --card-glass: rgba(255, 255, 255, 0.05);
     --text-primary: #ffffff;
     --text-muted: rgba(255, 255, 255, 0.5);
     
-    /* 강렬한 네온 컬러 팔레트 */
+    /* 네온 컬러 */
     --neon-green: #00ff9d;
     --neon-blue: #00f7ff;
     --neon-pink: #ff00e6;
-    --neon-yellow: #fbff00;
     
-    /* 기본 상태 컬러 */
+    /* 상태 컬러 */
     --current-neon: var(--text-muted); 
 }
 
@@ -20,9 +18,8 @@
 body {
     background: var(--bg-gradient);
     color: var(--text-primary);
-    font-family: 'Inter', sans-serif; /* 현대적인 폰트 적용 */
-    height: 100vh;
-    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    height: 100vh; overflow: hidden;
     display: flex; justify-content: center;
 }
 
@@ -32,37 +29,48 @@ body {
     padding: 24px; position: relative;
 }
 
-/* --- 헤더 --- */
-header { display: flex; justify-content: space-between; align-items: center; height: 60px; }
-.logo-area { 
-    display: flex; align-items: center; gap: 10px; 
-    font-weight: 800; font-size: 1.2rem; letter-spacing: 1px;
-    background: linear-gradient(to right, #fff, #aaa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+/* --- 헤더 (임팩트 강화) --- */
+header { 
+    display: flex; justify-content: space-between; align-items: center; 
+    height: 70px; margin-bottom: 10px;
 }
+.logo-area { 
+    display: flex; align-items: center; gap: 12px; 
+}
+.logo-icon {
+    font-size: 1.8rem;
+    filter: drop-shadow(0 0 10px rgba(255,255,255,0.5));
+}
+.logo-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 900; 
+    font-size: 1.5rem; 
+    letter-spacing: -0.5px;
+    /* 네온 그라데이션 텍스트 */
+    background: linear-gradient(135deg, #ffffff 0%, #00ff9d 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    /* 빛나는 효과 */
+    filter: drop-shadow(0 0 15px rgba(0, 255, 157, 0.4));
+}
+
 .status-indicator {
     width: 14px; height: 14px; border-radius: 50%;
     background: #222; border: 2px solid #333;
     display: flex; align-items: center; justify-content: center;
 }
-#status-dot { 
-    width: 8px; height: 8px; border-radius: 50%; background-color: #555; transition: 0.3s; 
-}
-#status-dot.active { 
-    background-color: var(--neon-green); 
-    box-shadow: 0 0 15px var(--neon-green); 
-}
+#status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: #555; transition: 0.3s; }
+#status-dot.active { background-color: var(--neon-green); box-shadow: 0 0 15px var(--neon-green); }
 
 /* --- 메인 디스플레이 --- */
 main { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; }
 
-.tuner-display-area {
-    display: flex; flex-direction: column; align-items: center; width: 100%;
-}
+.tuner-display-area { display: flex; flex-direction: column; align-items: center; width: 100%; }
 
 #guide-msg {
-    font-size: 0.9rem; font-weight: 600; color: var(--text-muted);
-    margin-bottom: 10px; letter-spacing: 1px; text-transform: uppercase;
-    transition: color 0.3s, text-shadow 0.3s;
+    font-size: 0.9rem; font-weight: 700; color: var(--text-muted);
+    margin-bottom: 10px; letter-spacing: 2px; text-transform: uppercase;
+    transition: color 0.3s;
 }
 
 .note-wrapper {
@@ -72,39 +80,25 @@ main { flex: 1; display: flex; flex-direction: column; justify-content: space-ev
 
 #note-name {
     font-size: 8rem; font-weight: 900; line-height: 1;
-    color: #333; /* 기본 어두운 색 */
-    -webkit-text-stroke: 2px var(--current-neon); /* 네온 테두리 */
-    text-shadow: 0 0 20px var(--current-neon); /* 네온 빛 */
+    color: #333; 
+    -webkit-text-stroke: 2px var(--current-neon);
+    text-shadow: 0 0 30px var(--current-neon);
     transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
-#note-name.active { 
-    color: var(--text-primary); /* 활성화되면 흰색으로 채움 */
-    -webkit-text-stroke: 0;
-}
+#note-name.active { color: var(--text-primary); -webkit-text-stroke: 0; }
 
 #octave {
     font-size: 2.5rem; font-weight: 700; color: var(--current-neon);
-    margin-left: 8px; text-shadow: 0 0 10px var(--current-neon);
+    margin-left: 8px; text-shadow: 0 0 15px var(--current-neon);
 }
 
-/* --- 아크 게이지 (SVG) --- */
-.gauge-container {
-    position: relative; width: 240px; height: 120px; margin-top: 20px;
-}
+/* 아크 게이지 */
+.gauge-container { position: relative; width: 240px; height: 120px; margin-top: 20px; }
 .gauge-svg { width: 100%; height: 100%; overflow: visible; }
-
 .gauge-track { stroke: rgba(255,255,255,0.1); }
 .center-marker { stroke: var(--text-muted); }
-
-/* 바늘 스타일 */
-.needle { 
-    stroke: var(--current-neon); 
-    filter: drop-shadow(0 0 8px var(--current-neon));
-    transition: stroke 0.2s;
-}
+.needle { stroke: var(--current-neon); filter: drop-shadow(0 0 10px var(--current-neon)); transition: stroke 0.2s; }
 .needle-base { fill: var(--current-neon); }
-
-/* 바늘 회전 애니메이션 (JS에서 제어) */
 #needle-group { transition: transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
 
 .cents-display {
@@ -115,17 +109,13 @@ main { flex: 1; display: flex; flex-direction: column; justify-content: space-ev
 }
 .cents-display.visible { opacity: 1; }
 
-
-/* 주파수 정보 */
 .frequency-info {
     font-family: 'Inter', monospace; font-size: 1rem; color: var(--text-muted);
     background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 20px;
 }
 
-
-/* --- 푸터 & 컨트롤 (글래스모피즘) --- */
+/* --- 컨트롤 --- */
 footer { margin-bottom: 20px; }
-
 .control-panel {
     background: var(--card-glass);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
@@ -133,76 +123,38 @@ footer { margin-bottom: 20px; }
     border-radius: 30px; padding: 20px;
     display: flex; flex-direction: column; gap: 20px;
 }
-
 #start-btn {
     width: 100%; height: 60px; border-radius: 25px; border: none;
     background: linear-gradient(135deg, #333, #111);
     color: var(--text-primary); font-size: 1.1rem; font-weight: 800;
     cursor: pointer; transition: 0.3s; position: relative; overflow: hidden;
 }
-#start-btn::before { /* 버튼 광택 효과 */
-    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-    transition: 0.5s;
-}
-#start-btn:hover::before { left: 100%; }
-#start-btn:active { transform: scale(0.98); }
-
-#start-btn.active {
-    background: var(--neon-green);
-    box-shadow: 0 0 30px var(--neon-green);
-    color: #000;
-}
+#start-btn.active { background: var(--neon-green); box-shadow: 0 0 30px var(--neon-green); color: #000; }
 .btn-content { display: flex; align-items: center; justify-content: center; gap: 10px; z-index: 1; position: relative;}
 
 .instrument-selector { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-
 .inst-pill {
     padding: 10px 20px; border-radius: 20px;
     background: rgba(255,255,255,0.05);
     font-size: 0.8rem; font-weight: 700; color: var(--text-muted);
-    cursor: pointer; transition: 0.3s;
-    border: 1px solid transparent;
+    cursor: pointer; transition: 0.3s; border: 1px solid transparent;
     display: flex; align-items: center; gap: 5px;
 }
-.inst-pill:hover { background: rgba(255,255,255,0.1); }
 .inst-pill.active {
-    background: rgba(0, 255, 157, 0.1);
-    border-color: var(--neon-green);
-    color: var(--neon-green);
-    box-shadow: 0 0 15px rgba(0, 255, 157, 0.2);
+    background: rgba(0, 255, 157, 0.1); border-color: var(--neon-green);
+    color: var(--neon-green); box-shadow: 0 0 15px rgba(0, 255, 157, 0.2);
 }
 
-/* --- 모달 --- */
-.modal {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.7); backdrop-filter: blur(10px);
-    display: flex; align-items: center; justify-content: center; z-index: 1000;
-    opacity: 1; transition: opacity 0.3s; padding: 20px;
-}
+/* 모달 */
+.modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 1; transition: opacity 0.3s; padding: 20px; }
 .modal.hidden { opacity: 0; pointer-events: none; }
-
-.modal-glass {
-    width: 100%; max-width: 400px;
-    background: linear-gradient(160deg, rgba(40,40,44,0.8), rgba(20,20,24,0.9));
-    border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-    border-radius: 30px; padding: 25px; max-height: 70vh; overflow-y: auto;
-}
+.modal-glass { width: 100%; max-width: 400px; background: linear-gradient(160deg, rgba(40,40,44,0.8), rgba(20,20,24,0.9)); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; padding: 25px; max-height: 70vh; overflow-y: auto; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-.modal-header h3 { font-weight: 800; letter-spacing: 1px; }
 #close-modal { background: none; border: none; color: var(--text-muted); font-size: 1.8rem; cursor: pointer;}
-.inst-option {
-    display: flex; align-items: center; gap: 15px;
-    padding: 15px; margin-bottom: 10px;
-    background: rgba(255,255,255,0.03); border-radius: 15px;
-    cursor: pointer; transition: 0.2s;
-}
-.inst-option:hover { background: rgba(255,255,255,0.08); }
-.opt-icon { font-size: 1.5rem; }
-.opt-name { font-weight: 700; font-size: 1rem; display: block;}
-.opt-detail { font-size: 0.8rem; color: var(--text-muted); }
+.inst-option { display: flex; align-items: center; gap: 15px; padding: 15px; margin-bottom: 10px; background: rgba(255,255,255,0.03); border-radius: 15px; cursor: pointer; }
+.opt-name { font-weight: 700; display: block;} .opt-detail { font-size: 0.8rem; color: var(--text-muted); }
 
-/* 상태별 네온 컬러 적용 클래스 */
+/* 테마 */
 body.perfect { --current-neon: var(--neon-green); }
 body.low { --current-neon: var(--neon-blue); }
 body.high { --current-neon: var(--neon-pink); }
