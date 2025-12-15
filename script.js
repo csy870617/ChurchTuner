@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // [수정] 기타 HPF를 60 -> 30으로 낮춰 6번줄(82Hz) 기본음을 확실히 잡게 함
+    // HPF를 30Hz로 통일하여 저음 손실 방지
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 30, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -88,6 +88,9 @@ let mediaStream = null;
 let isRunning = false; 
 let inputSource = null;
 
+// [신규] 프리앰프 (Gain Node)
+let gainNode = null; 
+
 let lowPassFilter = null; 
 let highPassFilter = null; 
 let compressor = null;   
@@ -95,8 +98,8 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 스무딩 필터: 12 (안정적 움직임)
-const centsSmoother = new MovingAverage(12); 
+// 스무딩 8 유지 (반응성과 안정성 균형)
+const centsSmoother = new MovingAverage(8); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -238,7 +241,7 @@ function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // PERFECT 기준: ±3.0센트 (요청하신 대로 넓힘)
+    // PERFECT 기준 ±3.0센트
     const isPerfect = Math.abs(targetCents) <= 3.0;
 
     btns.forEach(btn => {
@@ -249,7 +252,7 @@ function highlightStringBtn(noteName, octave, isLocked) {
         btn.style.boxShadow = "none";
 
         if (isCurrentDetected) {
-            if (isLocked) { // 락킹 상태면 무조건 Tuned 효과
+            if (isLocked) { 
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
                 btn.style.boxShadow = "0 0 30px var(--accent-green)";
@@ -310,9 +313,14 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
+        // [핵심 1] 프리앰프 (입력 증폭)
+        // Gain을 3.0으로 설정하여 1번, 2번 줄 같은 작은 소리도 크게 받음
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 3.0;
+
         compressor = audioContext.createDynamicsCompressor();
-        compressor.threshold.value = -40; 
-        compressor.ratio.value = 10;       
+        compressor.threshold.value = -50; // 더 작은 소리부터 압축 시작
+        compressor.ratio.value = 8;       
 
         highPassFilter = audioContext.createBiquadFilter();
         highPassFilter.type = "highpass";
@@ -324,7 +332,9 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
 
-        inputSource.connect(compressor);
+        // 연결: Source -> Gain(증폭) -> Compressor -> HPF -> LPF -> Analyzer
+        inputSource.connect(gainNode);
+        gainNode.connect(compressor);
         compressor.connect(highPassFilter);
         highPassFilter.connect(lowPassFilter);
         lowPassFilter.connect(analyser);
@@ -349,7 +359,6 @@ function applyInstrumentFilter() {
     if(!lowPassFilter || !highPassFilter) return;
     const instData = instruments[currentInstrument];
     
-    // [수정] 악기별 HPF 적용 (기타는 30Hz)
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
@@ -391,8 +400,9 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트 (0.05)
-    if (rms < 0.05) { 
+    // [핵심 2] 노이즈 게이트 조정 (0.01)
+    // 증폭된 신호 기준으로 노이즈 판단 (작은 소리도 허용)
+    if (rms < 0.01) { 
          if (isLocked) {
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
          } else {
@@ -400,7 +410,8 @@ function processAudio() {
              else targetCents = 0;
          }
          
-         if(rms < 0.01) {
+         // 완전 무음
+         if(rms < 0.005) {
             isLocked = false;
          }
          
@@ -415,7 +426,9 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.08; 
+    // [핵심 3] 임계값 완화 (0.15)
+    // 고음역대 얇은 줄의 파형도 잘 잡도록 표준 값보다 약간 넉넉하게 설정
+    const threshold = 0.15; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -441,7 +454,8 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        if (yinBuffer[tauEstimate] > 0.08) return -1; 
+        // 신뢰도 체크 완화 (0.15)
+        if (yinBuffer[tauEstimate] > 0.15) return -1; 
 
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -486,20 +500,12 @@ function findClosestString(frequency) {
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
         if (lastDetectedStringIndex === index) {
-            weight = 0.5; 
+            weight = 0.5; // 접착력 유지
         }
 
-        // [수정] 배음 확인 로직 강화 (6번줄 오인식 방지)
         let diff = Math.abs(frequency - str.freq);
-        const diff2x = Math.abs(frequency - (str.freq * 2));
-        const diff3x = Math.abs(frequency - (str.freq * 3));
-        const diff4x = Math.abs(frequency - (str.freq * 4));
-
-        // 배음이 맞으면 해당 줄의 기본음으로 매핑 (가중치 부여)
-        if (diff2x < 5) diff = diff2x / 10;
-        else if (diff3x < 5) diff = diff3x / 10;
-        else if (diff4x < 5) diff = diff4x / 10;
-
+        
+        // 배음 로직 제거 상태 유지 (가장 정확함)
         diff = diff * weight;
 
         if (diff < minDiff) {
@@ -552,13 +558,12 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    // [핵심] 락킹 범위 확대 (±3.0) 및 강력 고정 (±6.0)
-    const LOCK_ENTER_THRESHOLD = 3.0; // 쉽게 켜짐
-    const LOCK_EXIT_THRESHOLD = 6.0;  // 끈질기게 유지
+    const LOCK_ENTER_THRESHOLD = 3.0; // 3.0 이내 진입
+    const LOCK_EXIT_THRESHOLD = 6.0;  // 6.0 벗어나면 해제
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; // 강제 고정
+            targetCents = 0; 
         } else {
             isLocked = false; 
             targetCents = smoothedCents;
