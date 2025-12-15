@@ -1,7 +1,8 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 60, strings: [ 
+    // [수정] 기타 HPF를 60 -> 30으로 낮춰 6번줄(82Hz) 기본음을 확실히 잡게 함
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 30, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
         { note: "D", octave: 3, freq: 146.83, num: 4 }, 
@@ -9,7 +10,7 @@ const instruments = {
         { note: "B", octave: 3, freq: 246.94, num: 2 }, 
         { note: "E", octave: 4, freq: 329.63, num: 1 } 
     ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], hpf: 28, strings: [ 
+    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], hpf: 25, strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
@@ -60,7 +61,7 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (이동 평균 필터) ---
+// --- 2. 안정화 유틸리티 ---
 class MovingAverage {
     constructor(size) {
         this.size = size;
@@ -94,8 +95,7 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [핵심 변경 1] 스무딩 필터 크기 증가 (12)
-// 줄 튕길 때의 '확' 튀는 현상을 잡기 위해 평균값을 더 많이 냅니다.
+// 스무딩 필터: 12 (안정적 움직임)
 const centsSmoother = new MovingAverage(12); 
 
 let currentDisplayedNote = "--"; 
@@ -238,8 +238,10 @@ function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
+    // PERFECT 기준: ±3.0센트 (요청하신 대로 넓힘)
+    const isPerfect = Math.abs(targetCents) <= 3.0;
+
     btns.forEach(btn => {
-        const btnKey = btn.dataset.note + btn.dataset.octave;
         const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
 
         btn.classList.remove('detected', 'locked', 'tuned');
@@ -247,7 +249,7 @@ function highlightStringBtn(noteName, octave, isLocked) {
         btn.style.boxShadow = "none";
 
         if (isCurrentDetected) {
-            if (isLocked) {
+            if (isLocked) { // 락킹 상태면 무조건 Tuned 효과
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
                 btn.style.boxShadow = "0 0 30px var(--accent-green)";
@@ -258,34 +260,29 @@ function highlightStringBtn(noteName, octave, isLocked) {
     });
 }
 
-// [핵심 변경 2] 사운드 업그레이드 (띵~ 종소리)
 function playSuccessSound() {
     if (!audioContext) return;
     
     const now = Date.now();
-    if (now - lastSuccessTime < 1500) return; // 쿨타임 조금 줄임
+    if (now - lastSuccessTime < 1500) return; 
     lastSuccessTime = now;
 
     const t = audioContext.currentTime;
-    
-    // 1. 기본음 (880Hz)
     const osc1 = audioContext.createOscillator();
     const gain1 = audioContext.createGain();
     osc1.frequency.value = 880; 
     osc1.type = 'sine';
     
-    // 2. 배음 (1760Hz) - 풍성함 추가
     const osc2 = audioContext.createOscillator();
     const gain2 = audioContext.createGain();
     osc2.frequency.value = 1760; 
     osc2.type = 'sine';
 
-    // 볼륨 엔벨로프 (Bell Shape)
     gain1.gain.setValueAtTime(0.3, t); 
-    gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.5); // 긴 여운
+    gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.5); 
 
     gain2.gain.setValueAtTime(0.1, t); 
-    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.5); // 짧은 여운
+    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.5); 
 
     osc1.connect(gain1); gain1.connect(audioContext.destination);
     osc2.connect(gain2); gain2.connect(audioContext.destination);
@@ -352,6 +349,7 @@ function applyInstrumentFilter() {
     if(!lowPassFilter || !highPassFilter) return;
     const instData = instruments[currentInstrument];
     
+    // [수정] 악기별 HPF 적용 (기타는 30Hz)
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
@@ -491,11 +489,16 @@ function findClosestString(frequency) {
             weight = 0.5; 
         }
 
+        // [수정] 배음 확인 로직 강화 (6번줄 오인식 방지)
         let diff = Math.abs(frequency - str.freq);
-        const diffHarmonic = Math.abs(frequency - (str.freq * 2));
-        if (diffHarmonic < 5) { 
-             diff = diffHarmonic / 10; 
-        }
+        const diff2x = Math.abs(frequency - (str.freq * 2));
+        const diff3x = Math.abs(frequency - (str.freq * 3));
+        const diff4x = Math.abs(frequency - (str.freq * 4));
+
+        // 배음이 맞으면 해당 줄의 기본음으로 매핑 (가중치 부여)
+        if (diff2x < 5) diff = diff2x / 10;
+        else if (diff3x < 5) diff = diff3x / 10;
+        else if (diff4x < 5) diff = diff4x / 10;
 
         diff = diff * weight;
 
@@ -531,10 +534,8 @@ function updateTuner(frequency) {
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
-        
         isLocked = false; 
         centsSmoother.reset(); 
-        
         return; 
     }
 
@@ -551,13 +552,13 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    // 진입 3.0, 탈출 6.0 (요청하신 완화된 기준)
-    const LOCK_ENTER_THRESHOLD = 3.0; 
-    const LOCK_EXIT_THRESHOLD = 6.0;  
+    // [핵심] 락킹 범위 확대 (±3.0) 및 강력 고정 (±6.0)
+    const LOCK_ENTER_THRESHOLD = 3.0; // 쉽게 켜짐
+    const LOCK_EXIT_THRESHOLD = 6.0;  // 끈질기게 유지
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; 
+            targetCents = 0; // 강제 고정
         } else {
             isLocked = false; 
             targetCents = smoothedCents;
@@ -566,7 +567,6 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
         if (Math.abs(smoothedCents) < LOCK_ENTER_THRESHOLD) {
             isLocked = true;
             targetCents = 0;
-            // 확실한 알림음
             playSuccessSound();
         } else {
             targetCents = smoothedCents;
@@ -621,7 +621,8 @@ function renderTextUI(note, octave, cents, frequency, locked) {
 }
 
 function updateVisualizer() {
-    displayCents += (targetCents - displayCents) * 0.4; 
+    const lerpFactor = isLocked ? 0.6 : 0.4;
+    displayCents += (targetCents - displayCents) * lerpFactor; 
 
     let percentage = 50 + displayCents;
     if (percentage < 5) percentage = 5; 
