@@ -102,10 +102,10 @@ let currentDisplayedOctave = 0;
 let lastDetectedStringIndex = -1; 
 
 let isNoteLocked = false;
-let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 12; // 기준은 유지하되
+let lockDuration = 0; // 점수판 역할
+const LOCK_REQUIRED_SCORE = 20; // 목표 점수
 const LOCK_TOLERANCE_CENTS = 5;  
-const UNLOCK_THRESHOLD_CENTS = 25; 
+const UNLOCK_THRESHOLD_CENTS = 30; // 락킹 해제 조건 완화 (더 끈끈하게)
 
 let displayCents = 0; 
 let targetCents = 0;
@@ -521,33 +521,43 @@ function updateTuner(frequency) {
     processCentsAndLocking(match.note, match.octave, rawCents, frequency);
 }
 
+// [핵심 수정: 점수 누적(Leaky Bucket) 방식 적용]
 function processCentsAndLocking(noteName, octave, rawCents, frequency) {
     medianFilter.add(rawCents);
     const smoothCents = medianFilter.getMedian();
 
+    // 1. 이미 락킹된 상태라면?
     if (isNoteLocked) {
+        // 해제 조건이 매우 커야 풀림 (접착력 유지)
         if (Math.abs(smoothCents) > UNLOCK_THRESHOLD_CENTS) {
-            isNoteLocked = false;
-            lockDuration = 0;
+            // 점수를 서서히 깎아서 0이 되면 해제
+            lockDuration -= 2; 
+            if (lockDuration <= 0) {
+                isNoteLocked = false;
+                lockDuration = 0;
+            }
             targetCents = smoothCents;
         } else {
+            // 안정적이면 점수 꽉 채움
+            lockDuration = LOCK_REQUIRED_SCORE; 
             targetCents = 0; 
             guideMsg.textContent = "PERFECT";
         }
-    } else {
+    } 
+    // 2. 락킹 시도 중이라면?
+    else {
         targetCents = smoothCents;
         
-        // [수정된 부분] 정확하면 더 빨리 완료됨
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
-            // 기본 1 증가
-            let bonus = 1;
-            // 오차가 3센트 미만이면 보너스 3배 (즉, 4씩 증가 -> 3프레임이면 완료)
-            if (Math.abs(smoothCents) < 3) bonus = 3; 
+            // 정확하면 점수 증가
+            let bonus = 2; // 기본 점수
+            if (Math.abs(smoothCents) < 3) bonus = 4; // 아주 정확하면 더 빨리 채움
             
             lockDuration += bonus;
 
-            if (lockDuration > LOCK_REQUIRED_FRAMES) {
+            if (lockDuration >= LOCK_REQUIRED_SCORE) {
                 isNoteLocked = true;
+                lockDuration = LOCK_REQUIRED_SCORE; // 상한선 고정
                 
                 tunedStrings.add(noteName + octave);
                 highlightStringBtn(noteName, octave, true);
@@ -556,7 +566,9 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
                 targetCents = 0; 
             }
         } else {
-            lockDuration = 0; 
+            // 빗나갔다고 바로 0으로 만들지 않고 서서히 깎음 (이게 핵심)
+            lockDuration -= 1;
+            if (lockDuration < 0) lockDuration = 0;
         }
     }
     renderTextUI(noteName, octave, Math.round(targetCents), frequency, isNoteLocked);
@@ -600,7 +612,6 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
-    // 프레임마다 UI 강제 업데이트
     highlightStringBtn(note, octave, isLocked);
     
     tuningIndicator.style.backgroundColor = colorVar;
