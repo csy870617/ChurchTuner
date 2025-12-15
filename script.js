@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF 50Hz: 저음 잡음 제거
+    // HPF 50Hz, 1번줄 오인식 방지를 위한 주파수 윈도우 로직 강화
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -113,9 +113,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 필터 설정
-const freqSmoother = new MedianSmoother(7); // 주파수 튐 방지
-const centsSmoother = new MovingAverage(12); // 바늘 움직임 부드럽게
+// 필터: 주파수 튐 방지 및 바늘 부드러움
+const freqSmoother = new MedianSmoother(7); 
+const centsSmoother = new MovingAverage(16); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -128,6 +128,11 @@ let targetCents = 0;
 let isLocked = false;
 let consecutiveNoteCount = 0;
 let lastDetectedNoteFull = "";
+
+// 줄 변경 잠금 변수
+let stableStringIndex = -1;
+let pendingStringIndex = -1;
+let stringStabilityCounter = 0;
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -358,6 +363,7 @@ async function startTuner() {
         freqSmoother.reset();
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
+        stableStringIndex = -1;
         consecutiveNoteCount = 0;
         lastSuccessTime = 0;
         isLocked = false;
@@ -429,6 +435,7 @@ function processAudio() {
          
          if(rms < 0.01) {
             isLocked = false;
+            stableStringIndex = -1; 
          }
          
         consecutiveNoteCount = 0;
@@ -498,7 +505,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [핵심] 줄 선택 로직 (배음 통합 + 범위 제한)
+// [핵심] 줄 선택 (우선순위 역전 + 윈도우 축소)
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -515,45 +522,46 @@ function findClosestString(frequency) {
     let closestStr = null;
     let closestIndex = -1;
 
+    const candidates = [];
     instData.strings.forEach((str, index) => {
-        // 1. 배음 통합 (Harmonic Folding)
-        // 입력 주파수가 이 줄의 2배, 3배, 4배 주파수와 비슷하면? -> 이 줄의 소리라고 판단!
-        // 예: 392Hz(G4)가 들어옴 -> G3(196Hz)의 2배음이네? -> G3 줄로 인식!
-        
+        // 배음 통합
         let checkFreq = frequency;
-        
-        // 2배음 체크
         if (Math.abs(frequency - str.freq * 2) < 10) checkFreq = frequency / 2;
-        // 3배음 체크
         else if (Math.abs(frequency - str.freq * 3) < 10) checkFreq = frequency / 3;
-        // 4배음 체크
         else if (Math.abs(frequency - str.freq * 4) < 10) checkFreq = frequency / 4;
 
-        // 2. 주파수 윈도우 (±30%)
-        if (checkFreq < str.freq * 0.7 || checkFreq > str.freq * 1.3) {
-            return;
+        // [중요] 주파수 윈도우 축소 (±20%)
+        if (checkFreq >= str.freq * 0.8 && checkFreq <= str.freq * 1.2) {
+            candidates.push({ str, index, diff: Math.abs(checkFreq - str.freq) });
         }
+    });
 
+    if (candidates.length === 0) return { index: -1 }; 
+
+    candidates.forEach(cand => {
         let weight = 1.0;
-        if (lastDetectedStringIndex === index) {
-            weight = 0.8; 
+        
+        // [핵심] 고음줄 우선순위 부여 (1번줄이 5번줄 배음으로 오해받는 것 방지)
+        // 1번줄(index 5)이나 2번줄(index 4)이면 가중치로 우선권 부여 (오차를 줄여줌)
+        // (기타는 보통 6번줄이 index 0, 1번줄이 index 5일 수 있으나 여기 데이터는 num:6 ~ num:1)
+        // 데이터상: 6번줄(E2) = index 0, 1번줄(E4) = index 5
+        if (cand.index >= 4) { // 1번, 2번줄
+             weight = 0.6; // 오차를 더 작게 계산해서 우선 선택되게 함
         }
 
-        let diff = Math.abs(checkFreq - str.freq);
-        diff = diff * weight;
-
-        if (diff < minDiff) {
-            minDiff = diff;
-            closestStr = str;
-            closestIndex = index;
+        if (stableStringIndex !== -1 && stableStringIndex === cand.index) {
+            weight = 0.5; // 현재 줄 유지력
+        }
+        
+        let finalDiff = cand.diff * weight;
+        if (finalDiff < minDiff) {
+            minDiff = finalDiff;
+            closestStr = cand.str;
+            closestIndex = cand.index;
         }
     });
 
     if (!closestStr) return { index: -1 };
-
-    if (closestIndex !== -1) {
-        lastDetectedStringIndex = closestIndex;
-    }
 
     return { 
         note: closestStr.note, 
@@ -565,16 +573,25 @@ function findClosestString(frequency) {
 
 function updateTuner(frequency) {
     const match = findClosestString(frequency);
-    if (match.index === -1) return;
+    if(match.index === -1) return; 
 
-    // 만약 배음 보정으로 checkFreq가 조정되었다면 그것을 기준으로 계산해야 함
-    // findClosestString은 가장 가까운 줄의 "targetFreq"를 반환함.
-    // 문제는 frequency가 여전히 고음(배음)일 수 있다는 점.
-    // 따라서 센트 계산 시에도 배음을 접어서(Fold) 계산해야 함.
+    // 줄 변경 잠금 로직
+    if (stableStringIndex !== -1 && stableStringIndex !== match.index) {
+        if (pendingStringIndex !== match.index) {
+            pendingStringIndex = match.index;
+            stringStabilityCounter = 0;
+        } else {
+            stringStabilityCounter++;
+        }
+        if (stringStabilityCounter < 25) return;
+    }
+
+    stableStringIndex = match.index;
+    pendingStringIndex = -1;
+    stringStabilityCounter = 0;
     
+    // 센트 계산 시 배음 보정
     let calcFreq = frequency;
-    // 2배음이면 /2, 3배음이면 /3 ... 
-    // 타겟 주파수와의 비율을 보고 가장 가까운 정수배로 나눔
     let ratio = Math.round(frequency / match.targetFreq);
     if (ratio > 1) calcFreq = frequency / ratio;
 
@@ -584,7 +601,6 @@ function updateTuner(frequency) {
     while (rawCents < -600) rawCents += 1200;
 
     const currentNoteKey = match.note + match.octave;
-    
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
@@ -599,20 +615,21 @@ function updateTuner(frequency) {
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
     
-    processCentsAndUI(match.note, match.octave, rawCents, match.targetFreq); // frequency 대신 targetFreq 보여주거나 calcFreq 보여줌
+    processCentsAndUI(match.note, match.octave, rawCents, match.targetFreq);
 }
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    // 락킹 범위: ±3.0 (진입), ±6.0 (유지)
     const LOCK_ENTER_THRESHOLD = 3.0; 
-    const LOCK_EXIT_THRESHOLD = 6.0;  
+    // [중요] 락킹 탈출 범위 대폭 확대 (±12.0)
+    // 1,2번줄 흔들림이 심해도 락킹을 풀지 않고 버팀 (데드존)
+    const LOCK_EXIT_THRESHOLD = 12.0;  
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; 
+            targetCents = 0; // 완전 고정 (Dead Zone)
         } else {
             isLocked = false; 
             targetCents = smoothedCents;
@@ -627,7 +644,6 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
         }
     }
 
-    // 주파수 표시는 실제 들리는 Hz가 아니라, 사용자가 맞추려는 줄의 기준 Hz를 보여주는게 덜 헷갈림
     renderTextUI(noteName, octave, targetCents, frequency, isLocked); 
 }
 
@@ -636,8 +652,6 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
     
-    // 주파수는 튜닝하려는 줄의 목표 주파수로 표시 (안정감)
-    // 혹은 현재 오차만큼 더해서 표시
     let displayFreq = frequency * Math.pow(2, cents / 1200);
     freqEl.textContent = displayFreq.toFixed(1) + " Hz";
     
@@ -678,9 +692,10 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
+// [핵심] 락킹 시 시각적 완전 정지
 function updateVisualizer() {
     if (isLocked) {
-        displayCents = 0;
+        displayCents = 0; // 강제 0
     } else {
         displayCents += (targetCents - displayCents) * 0.15; 
     }
