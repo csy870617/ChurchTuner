@@ -39,7 +39,6 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 ---
 class MovingAverage {
     constructor(size) { this.size = size; this.buffer = []; }
     add(val) { this.buffer.push(val); if(this.buffer.length > this.size) this.buffer.shift(); }
@@ -53,15 +52,14 @@ class MedianSmoother {
     reset() { this.buffer = []; }
 }
 
-// --- 3. 전역 변수 ---
 let currentInstrument = 'guitar';
 let audioContext = null; let analyser = null; let mediaStream = null;
 let isRunning = false; let inputSource = null;
 let gainNode = null; let lowPassFilter = null; let highPassFilter = null; let compressor = null;
 
 const BUF_SIZE = 4096; const buf = new Float32Array(BUF_SIZE);
-const freqSmoother = new MedianSmoother(7); 
-const centsSmoother = new MovingAverage(24); 
+const freqSmoother = new MedianSmoother(5); 
+const centsSmoother = new MovingAverage(14); 
 
 let currentDisplayedNote = "--"; let currentDisplayedOctave = "";
 let lastSuccessTime = 0; 
@@ -69,7 +67,6 @@ let displayAngle = 0; let targetAngle = 0;
 let isLocked = false; let consecutiveNoteCount = 0; let lastDetectedNoteFull = "";
 let stableStringIndex = -1; let pendingStringIndex = -1; let stringStabilityCounter = 0;
 
-// DOM Elements
 const startBtn = document.getElementById('start-btn');
 const btnText = startBtn.querySelector('.btn-text');
 const noteNameEl = document.getElementById('note-name');
@@ -87,11 +84,8 @@ const closeModalBtn = document.getElementById('close-modal');
 const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 
-// --- 초기화 ---
 function init() {
-    // [핵심] 페이지 로드 시 무조건 초기 상태로 강제 설정
-    resetToDefault(); 
-    
+    resetToDefault();
     instPills.forEach(pill => pill.addEventListener('click', () => handleInstClick(pill)));
     startBtn.addEventListener('click', toggleTuner);
     closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
@@ -102,25 +96,18 @@ function init() {
     requestAnimationFrame(updateVisualizer);
 }
 
-// [핵심] 초기화 함수: 저장된 것 무시하고 기본값(Guitar + Select버튼)으로 리셋
 function resetToDefault() {
-    // 1. 저장소 클리어 (선택 사항이지만 확실한 리셋을 위해)
     localStorage.removeItem('churchTuner_current');
     localStorage.removeItem('churchTuner_dynamic');
-
-    // 2. 3번 버튼을 'SELECT' 모드로 강제 복구
     dynIcon.textContent = "🎵";
     dynName.textContent = "SELECT";
     dynamicCard.dataset.type = "select";
-    
-    // 3. 기타(Guitar)를 기본 악기로 선택
     const guitarPill = document.querySelector('.inst-pill[data-type="guitar"]');
     activateInstrument('guitar', guitarPill);
 }
 
 function handleInstClick(pill) {
     const type = pill.dataset.type;
-    
     if (type === 'select' || (pill.id === 'dynamic-inst-card' && pill.classList.contains('active'))) {
         openModal(); return;
     }
@@ -130,17 +117,12 @@ function handleInstClick(pill) {
 function activateInstrument(key, pill) {
     instPills.forEach(p => p.classList.remove('active'));
     pill.classList.add('active');
-    
     currentInstrument = key;
-    // 이제 localStorage에 저장하지 않음 (재접속 시 리셋되도록)
-    
     if(key !== 'guitar' && key !== 'bass') {
-        // 동적 버튼 UI만 업데이트 (저장은 안 함)
         dynIcon.textContent = instruments[key].icon;
         dynName.textContent = instruments[key].name;
         dynamicCard.dataset.type = key;
     }
-
     if(isRunning) applyFilters();
     resetUI();
 }
@@ -153,30 +135,46 @@ function generateModalList() {
         const div = document.createElement('div');
         div.className = 'inst-option';
         div.innerHTML = `<div class="opt-icon">${inst.icon}</div><div class="opt-info"><span class="opt-name">${inst.name}</span><span class="opt-detail">${inst.detail}</span></div>`;
-        div.addEventListener('click', () => { 
-            // 선택 시 동적 버튼에 할당하고 모달 닫기
-            activateInstrument(key, dynamicCard); 
-            modal.classList.add('hidden'); 
-        });
+        div.addEventListener('click', () => { activateInstrument(key, dynamicCard); modal.classList.add('hidden'); });
         modalList.appendChild(div);
     });
 }
 function openModal() { modal.classList.remove('hidden'); }
 
-// 띵동~ 사운드
+// [수정] 묵직하고 고급스러운 '도-미(C Major)' 느낌 사운드
 function playSuccessSound() {
     if (!audioContext) return;
     const now = Date.now(); if (now - lastSuccessTime < 2000) return; lastSuccessTime = now;
     const t = audioContext.currentTime;
-    const osc1 = audioContext.createOscillator(); const gain1 = audioContext.createGain(); osc1.frequency.value = 1318.51; osc1.type = 'sine';
-    const osc2 = audioContext.createOscillator(); const gain2 = audioContext.createGain(); osc2.frequency.value = 1046.50; osc2.type = 'triangle';
-    gain1.gain.setValueAtTime(0, t); gain1.gain.linearRampToValueAtTime(0.3, t + 0.05); gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-    gain2.gain.setValueAtTime(0, t); gain2.gain.setValueAtTime(0, t + 0.2); gain2.gain.linearRampToValueAtTime(0.3, t + 0.25); gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
-    osc1.connect(gain1).connect(audioContext.destination); osc2.connect(gain2).connect(audioContext.destination);
-    osc1.start(t); osc1.stop(t + 1.2); osc2.start(t + 0.2); osc2.stop(t + 1.8);
+
+    // OSC 1: 523.25Hz (C5) - 묵직한 베이스 (Triangle Wave)
+    const osc1 = audioContext.createOscillator();
+    const gain1 = audioContext.createGain();
+    osc1.frequency.value = 523.25; 
+    osc1.type = 'triangle'; 
+
+    // OSC 2: 659.25Hz (E5) - 화음 (Sine Wave)
+    const osc2 = audioContext.createOscillator();
+    const gain2 = audioContext.createGain();
+    osc2.frequency.value = 659.25; 
+    osc2.type = 'sine';
+
+    // 볼륨 엔벨롭 (부드러운 어택, 긴 여운)
+    gain1.gain.setValueAtTime(0, t);
+    gain1.gain.linearRampToValueAtTime(0.4, t + 0.1); 
+    gain1.gain.exponentialRampToValueAtTime(0.01, t + 2.0); // 2초간 길게
+
+    gain2.gain.setValueAtTime(0, t);
+    gain2.gain.linearRampToValueAtTime(0.3, t + 0.1);
+    gain2.gain.exponentialRampToValueAtTime(0.01, t + 2.0);
+
+    osc1.connect(gain1).connect(audioContext.destination);
+    osc2.connect(gain2).connect(audioContext.destination);
+
+    osc1.start(t); osc1.stop(t + 2.0);
+    osc2.start(t); osc2.stop(t + 2.0);
 }
 
-// --- 오디오 처리 ---
 function toggleTuner() { isRunning ? stopTuner() : startTuner(); }
 
 async function startTuner() {
@@ -312,8 +310,11 @@ function updateTuner(freq) {
     currentDisplayedNote = match.note; currentDisplayedOctave = match.octave;
     centsSmoother.add(cents); let smoothed = centsSmoother.getAverage();
 
-    if(isLocked) { if(Math.abs(smoothed) > 20.0) isLocked = false; else targetAngle = 0; } 
-    else {
+    // [핵심] 바늘 튐 방지: 락킹되면 무조건 0으로 고정
+    if(isLocked) { 
+        if(Math.abs(smoothed) > 20.0) isLocked = false; 
+        else targetAngle = 0; // 강제 0점 조준
+    } else {
         targetAngle = Math.max(-90, Math.min(90, smoothed * 1.8));
         if(Math.abs(smoothed) < 3.0) { isLocked = true; targetAngle = 0; playSuccessSound(); }
     }
@@ -339,7 +340,7 @@ function renderUI(note, oct, cents, freq) {
 }
 
 function updateVisualizer() {
-    displayAngle += ((isLocked ? 0 : targetAngle) - displayAngle) * 0.08; 
+    displayAngle += ((isLocked ? 0 : targetAngle) - displayAngle) * 0.15;
     if(needleGroup) needleGroup.setAttribute('transform', `rotate(${displayAngle}, 100, 100)`);
     requestAnimationFrame(updateVisualizer);
 }
