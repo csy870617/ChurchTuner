@@ -60,7 +60,7 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (이동 평균 필터 - 부드러운 움직임) ---
+// --- 2. 안정화 유틸리티 (이동 평균 필터) ---
 class MovingAverage {
     constructor(size) {
         this.size = size;
@@ -94,8 +94,8 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [변경] 중간값 필터 대신 이동 평균 사용 (반응성 향상)
-const centsSmoother = new MovingAverage(3); 
+// 반응성 확보를 위해 평균 필터 사이즈 최소화 (3 -> 2)
+const centsSmoother = new MovingAverage(2); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -182,7 +182,6 @@ function activateInstrument(instKey, cardElement) {
         localStorage.setItem('churchTuner_dynamic', instKey);
     }
     
-    // 악기 변경 시 필터 즉시 적용
     if(isRunning) applyInstrumentFilter();
     resetUI();
     renderStringButtons(currentInstrument);
@@ -233,13 +232,14 @@ function renderStringButtons(instType) {
     });
 }
 
-// [수정] 락킹 제거 -> 실시간 하이라이트
+// [핵심 수정] 하이라이트 로직 엄격화
 function highlightStringBtn(noteName, octave, cents) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // 정확도 판단 (±5센트 이내면 초록색)
-    const isPerfect = Math.abs(cents) < 5;
+    // [중요] 녹색불 기준을 ±1센트로 축소 (기존 5센트 -> 1센트)
+    // 1센트만 벗어나도 즉시 불 꺼짐 (고정 X)
+    const isPerfect = Math.abs(cents) <= 1.0;
 
     btns.forEach(btn => {
         const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
@@ -250,11 +250,11 @@ function highlightStringBtn(noteName, octave, cents) {
 
         if (isCurrentDetected) {
             if (isPerfect) {
-                btn.classList.add('tuned'); // 녹색
+                btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
-                btn.style.boxShadow = "0 0 20px var(--accent-green)";
+                btn.style.boxShadow = "0 0 25px var(--accent-green)";
             } else {
-                btn.classList.add('detected'); // 파란색 (감지됨)
+                btn.classList.add('detected'); 
             }
         }
     });
@@ -279,17 +279,14 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // 1. 컴프레서 (입력 평탄화)
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -40; 
         compressor.ratio.value = 10;       
 
-        // 2. High-Pass Filter (동적 설정 전 초기값)
         highPassFilter = audioContext.createBiquadFilter();
         highPassFilter.type = "highpass";
-        highPassFilter.frequency.value = 30; // 기본값
+        highPassFilter.frequency.value = 30; 
 
-        // 3. Low-Pass Filter
         lowPassFilter = audioContext.createBiquadFilter();
         lowPassFilter.type = "lowpass";
         
@@ -301,7 +298,7 @@ async function startTuner() {
         highPassFilter.connect(lowPassFilter);
         lowPassFilter.connect(analyser);
 
-        applyInstrumentFilter(); // [중요] 악기에 맞는 필터 적용
+        applyInstrumentFilter();
 
         isRunning = true;
         centsSmoother.reset();
@@ -315,16 +312,13 @@ async function startTuner() {
     } catch (err) { console.error(err); alert("마이크 권한이 필요합니다."); }
 }
 
-// [핵심 기능] 악기별 맞춤 필터링 (정확도 상승의 열쇠)
 function applyInstrumentFilter() {
     if(!lowPassFilter || !highPassFilter) return;
     const instData = instruments[currentInstrument];
     
-    // HPF: 베이스는 낮게(28Hz), 기타는 높게(60Hz) -> 잡음 제거 최적화
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
-    // LPF: 악기 최고음보다 조금 높게
     const maxFreq = instData.range ? instData.range[1] : 1000; 
     lowPassFilter.frequency.value = maxFreq;
 }
@@ -362,9 +356,8 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트 (0.04 유지)
+    // 소음 게이트 (0.04)
     if (rms < 0.04) { 
-         // 소리가 멈추면 바늘 서서히 0으로
          if (Math.abs(targetCents) > 1) {
              targetCents *= 0.8;
          } else {
@@ -380,7 +373,6 @@ function processAudio() {
     requestAnimationFrame(processAudio);
 }
 
-// [YIN 알고리즘 - 정확도 최적화]
 function yinPitchDetection(buffer, sampleRate) {
     const threshold = 0.10; 
     const bufferSize = buffer.length;
@@ -388,7 +380,6 @@ function yinPitchDetection(buffer, sampleRate) {
     const yinBuffer = new Float32Array(bufferSize / 2);
     yinBuffer[0] = 1; let runningSum = 0;
     
-    // 1. Difference function
     for (let tau = 1; tau < yinBuffer.length; tau++) {
         let deltaSum = 0;
         for (let i = 0; i < yinBuffer.length; i++) {
@@ -401,7 +392,6 @@ function yinPitchDetection(buffer, sampleRate) {
         else yinBuffer[tau] = 1;
     }
 
-    // 2. Absolute threshold
     for (let tau = 2; tau < yinBuffer.length; tau++) {
         if (yinBuffer[tau] < threshold) {
             while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
@@ -409,9 +399,7 @@ function yinPitchDetection(buffer, sampleRate) {
         }
     }
 
-    // 3. Parabolic Interpolation (정밀 보정)
     if (tauEstimate !== -1) {
-        // 신뢰도 체크 (값이 너무 높으면 잡음)
         if (yinBuffer[tauEstimate] > 0.08) return -1; 
 
         const x0 = tauEstimate;
@@ -456,15 +444,16 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
-        // 접착력을 약간 줄여서 반응성 확보 (0.4 -> 0.7)
+        
+        // [수정] 줄 선택 접착력 대폭 감소 (0.7 -> 0.9) 
+        // 거의 차이 없이 주파수만으로 즉각 판별 -> 고정 현상 제거
         if (lastDetectedStringIndex === index) {
-            weight = 0.7; 
+            weight = 0.9; 
         }
 
         let diff = Math.abs(frequency - str.freq);
         const diffHarmonic = Math.abs(frequency - (str.freq * 2));
-        // 배음 체크
-        if (diffHarmonic < 5) { // 5Hz 이내일 때만 배음으로 인정 (더 엄격하게)
+        if (diffHarmonic < 5) { 
              diff = diffHarmonic / 10; 
         }
 
@@ -514,12 +503,11 @@ function updateTuner(frequency) {
     processCentsAndUI(match.note, match.octave, rawCents, frequency);
 }
 
-// [수정] 락킹 로직 제거 -> 단순 부드러운 UI 업데이트
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
-    targetCents = centsSmoother.getAverage(); // 이동 평균값 사용
+    targetCents = centsSmoother.getAverage(); 
 
-    renderTextUI(noteName, octave, Math.round(targetCents), frequency);
+    renderTextUI(noteName, octave, targetCents, frequency); // 소수점 단위 전달
 }
 
 function renderTextUI(note, octave, cents, frequency) {
@@ -528,10 +516,13 @@ function renderTextUI(note, octave, cents, frequency) {
     noteNameEl.classList.add('active');
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
-    // 절대값 3 이내면 PERFECT
-    const isPerfect = Math.abs(cents) <= 3;
+    // [중요] PERFECT 판정 기준: ±1센트 (엄격함)
+    const isPerfect = Math.abs(cents) <= 1.0;
     
-    let displayStr = isPerfect ? "OK" : (cents > 0 ? "+" : "") + cents;
+    // 디스플레이는 반올림해서 보여주지만, 내부 로직은 소수점까지 체크
+    const roundedCents = Math.round(cents);
+    let displayStr = isPerfect ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
+    
     centsEl.textContent = displayStr; 
     centsEl.classList.remove('hidden');
 
@@ -542,10 +533,10 @@ function renderTextUI(note, octave, cents, frequency) {
     if (isPerfect) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -3) { 
+    } else if (cents < -1.0) { // 기준 강화
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 3) {
+    } else if (cents > 1.0) { // 기준 강화
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
     }
@@ -556,7 +547,6 @@ function renderTextUI(note, octave, cents, frequency) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
-    // 하단 버튼 하이라이트 (고정 없이 실시간 반영)
     highlightStringBtn(note, octave, cents);
     
     tuningIndicator.style.backgroundColor = colorVar;
@@ -565,7 +555,6 @@ function renderTextUI(note, octave, cents, frequency) {
 }
 
 function updateVisualizer() {
-    // 락킹 해제했으므로 바늘 반응 속도 빠르고 일정하게
     displayCents += (targetCents - displayCents) * 0.4; 
 
     let percentage = 50 + displayCents;
