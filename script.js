@@ -1,8 +1,8 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF 50Hz 유지 (잡음 제거 최적화)
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
+    // [수정] HPF 75Hz: 6번줄(82Hz)은 살리고, 그 아래 저음(서브하모닉)은 강력 차단
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 75, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
         { note: "D", octave: 3, freq: 146.83, num: 4 }, 
@@ -253,10 +253,8 @@ function renderStringButtons(instType) {
     });
 }
 
-// [수정] 줄 버튼 불 들어오게 하는 기능 삭제 (빈 함수)
 function highlightStringBtn(noteName, octave, isLocked) {
-    // 목사님 요청: 버튼 불 켜짐 기능 완전 제거
-    // UI 혼란 방지를 위해 아무 동작도 하지 않음.
+    // 기능 삭제 (요청사항)
     return;
 }
 
@@ -355,7 +353,11 @@ function applyInstrumentFilter() {
     if(!lowPassFilter || !highPassFilter) return;
     const instData = instruments[currentInstrument];
     
-    const hpfVal = instData.hpf || 30;
+    // [수정] 기타일 때 HPF 75Hz로 상향 (6번줄 82Hz 보호하면서 저음 노이즈/배음 차단)
+    let hpfVal = instData.hpf || 30;
+    if (currentInstrument === 'guitar') {
+        hpfVal = 75; 
+    }
     highPassFilter.frequency.value = hpfVal;
 
     let maxFreq = instData.range ? instData.range[1] : 1000;
@@ -385,13 +387,6 @@ function resetUI() {
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
     tuningIndicator.style.boxShadow = "none";
-    
-    // 버튼 초기화 기능 삭제 (어차피 안 켜지므로)
-    document.querySelectorAll('.string-btn').forEach(b => {
-        b.classList.remove('detected', 'locked', 'tuned');
-        b.style.transform = "scale(1)";
-        b.style.boxShadow = "none";
-    });
 }
 
 function processAudio() {
@@ -430,7 +425,9 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.15; 
+    // [중요] 임계값 0.25로 상향 (고음역대 E4의 얇은 파형을 즉시 잡기 위함)
+    // 0.15는 너무 낮아서 E4를 놓치고 1/3인 A2(110Hz)로 떨어지는 원인이 됨.
+    const threshold = 0.25; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -456,7 +453,7 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        if (yinBuffer[tauEstimate] > 0.15) return -1; 
+        if (yinBuffer[tauEstimate] > 0.25) return -1; 
 
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -482,7 +479,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [핵심] 줄 선택 로직 단순화
+// [핵심] 오직 기본음과 옥타브(2배)만 검사. 3배음 무시.
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -500,13 +497,34 @@ function findClosestString(frequency) {
     let closestIndex = -1;
 
     instData.strings.forEach((str, index) => {
-        // [중요] 모든 배음 로직 삭제. 오직 가장 가까운 기본 주파수만 찾음.
-        let diff = Math.abs(frequency - str.freq);
+        // 1. 기본음 검사
+        let diff1 = Math.abs(frequency - str.freq);
         
-        if (diff < minDiff) {
-            minDiff = diff;
-            closestStr = str;
-            closestIndex = index;
+        // 2. 2배음(옥타브) 검사
+        let diff2 = Math.abs(frequency - (str.freq * 2));
+
+        // 3. 3배음 이상은 검사하지 않음! (5번줄->1번줄 오인식 원천 차단)
+
+        let bestDiff = Infinity;
+        
+        // 오차 범위 30% 이내만 허용
+        if (frequency >= str.freq * 0.7 && frequency <= str.freq * 1.3) {
+            bestDiff = diff1;
+        } else if (frequency >= (str.freq * 2) * 0.7 && frequency <= (str.freq * 2) * 1.3) {
+            bestDiff = diff2;
+        }
+
+        if (bestDiff !== Infinity) {
+            let weight = 1.0;
+            if (lastDetectedStringIndex === index) weight = 0.8;
+            
+            bestDiff *= weight;
+
+            if (bestDiff < minDiff) {
+                minDiff = bestDiff;
+                closestStr = str;
+                closestIndex = index;
+            }
         }
     });
 
@@ -524,8 +542,13 @@ function updateTuner(frequency) {
     const match = findClosestString(frequency);
     if(match.index === -1) return; 
 
-    // 센트 계산
-    let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
+    // 센트 계산 시 2배음만 보정
+    let calcFreq = frequency;
+    if (Math.abs(frequency - match.targetFreq * 2) < 20) {
+        calcFreq = frequency / 2;
+    }
+
+    let rawCents = 1200 * Math.log2(calcFreq / match.targetFreq);
     
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
@@ -614,7 +637,6 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
-    // highlightStringBtn 호출은 하지만 내부는 비어있음
     highlightStringBtn(note, octave, locked);
     
     tuningIndicator.style.backgroundColor = colorVar;
@@ -622,7 +644,7 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     else tuningIndicator.style.boxShadow = `0 0 20px ${colorVar}`;
 }
 
-// [핵심] 시각적 강제 고정
+// [핵심] 락킹 시 시각적 완전 정지
 function updateVisualizer() {
     if (isLocked) {
         displayCents = 0;
