@@ -94,9 +94,8 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// [수정] 반응성 확보를 위해 2였던 것을 10으로 증가
-// 줄 튕길 때의 초기 급발진(Attack)을 부드럽게 눌러줍니다.
-const centsSmoother = new MovingAverage(10); 
+// 스무딩 필터: 8 정도로 유지하여 흔들림 적당히 제어
+const centsSmoother = new MovingAverage(8); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -106,10 +105,7 @@ let lastSuccessTime = 0;
 let displayCents = 0; 
 let targetCents = 0;
 
-// [추가] 락킹(고정) 상태 관리
 let isLocked = false;
-
-// [소음 방지용]
 let consecutiveNoteCount = 0;
 let lastDetectedNoteFull = "";
 
@@ -250,7 +246,6 @@ function highlightStringBtn(noteName, octave, isLocked) {
         btn.style.boxShadow = "none";
 
         if (isCurrentDetected) {
-            // 락킹 상태면 녹색, 아니면 파란색
             if (isLocked) {
                 btn.classList.add('tuned'); 
                 btn.style.transform = "scale(1.05)";
@@ -385,18 +380,18 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 소음 게이트 (0.04)
-    if (rms < 0.04) { 
-         // 소리가 멈추면 락킹을 풀고 중앙으로 서서히 복귀
+    // 노이즈 게이트 (0.05)
+    if (rms < 0.05) { 
+         // 소리가 멈출 때
          if (isLocked) {
-            // 소리 끊겨도 잠시 보여주기 위해 유지
-            if (Math.abs(targetCents) > 1) targetCents *= 0.9;
+             // 락킹 상태면 잠시 유지하다가 꺼짐 (깜빡임 방지)
+             if (Math.abs(targetCents) > 1) targetCents *= 0.9;
          } else {
              if (Math.abs(targetCents) > 1) targetCents *= 0.8;
              else targetCents = 0;
          }
          
-         // 아주 조용하면 락킹 완전 해제
+         // 완전 무음이면 락킹 해제
          if(rms < 0.01) {
             isLocked = false;
          }
@@ -412,7 +407,7 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    const threshold = 0.10; 
+    const threshold = 0.08; // 엄격한 음색 판단
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -482,7 +477,7 @@ function findClosestString(frequency) {
 
     instData.strings.forEach((str, index) => {
         let weight = 1.0;
-        // 접착력 유지 (0.5)
+        // 접착력 유지
         if (lastDetectedStringIndex === index) {
             weight = 0.5; 
         }
@@ -524,12 +519,11 @@ function updateTuner(frequency) {
 
     const currentNoteKey = match.note + match.octave;
     
-    // 줄이 바뀌면 락킹 해제 및 초기화
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
         
-        isLocked = false; // 락킹 해제
+        isLocked = false; 
         centsSmoother.reset(); 
         
         return; 
@@ -548,25 +542,25 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    // [핵심] 히스테리시스 락킹 (Sticky Logic)
-    // 1. 진입(Enter): 아주 정확할 때 (±1.0) -> isLocked = true
-    // 2. 탈출(Exit):  많이 벗어날 때 (±3.0) -> isLocked = false
+    // [핵심 로직] 판정 완화 및 강력한 락킹 (Hysteresis)
+    // 1. 진입(Enter): ±3.0센트 (요청하신 대로 완화)
+    // 2. 탈출(Exit):  ±6.0센트 (한번 잡히면 끈끈하게 유지)
     
-    const LOCK_ENTER_THRESHOLD = 1.0; // 엄격함
-    const LOCK_EXIT_THRESHOLD = 3.0;  // 관대함
+    const LOCK_ENTER_THRESHOLD = 3.0; // 1.0 -> 3.0 (쉬움)
+    const LOCK_EXIT_THRESHOLD = 6.0;  // 흔들려도 버팀
 
     if (isLocked) {
-        // 이미 락킹된 상태
+        // 락킹 상태
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; // 강제 고정
+            targetCents = 0; // 바늘 중앙 강제 고정
         } else {
-            isLocked = false; // 너무 벗어나면 락 풀림
+            isLocked = false; // 너무 많이 벗어나면 풀림
             targetCents = smoothedCents;
         }
     } else {
-        // 락킹 안 된 상태
+        // 락킹 아닐 때
         if (Math.abs(smoothedCents) < LOCK_ENTER_THRESHOLD) {
-            isLocked = true; // 락 걸림
+            isLocked = true; // 락킹 시작
             targetCents = 0;
             playSuccessSound();
         } else {
@@ -581,6 +575,7 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     noteNameEl.textContent = note; 
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
+    
     freqEl.textContent = frequency.toFixed(1) + " Hz";
     
     const roundedCents = Math.round(cents);
@@ -593,18 +588,16 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     let msg = "TUNING...";
     const style = getComputedStyle(document.body);
 
-    // 락킹 상태면 무조건 PERFECT 표시
     if (locked) {
         colorVar = style.getPropertyValue('--accent-green');
         msg = "PERFECT";
-    } else if (cents < -1.0) { 
+    } else if (cents < -3.0) { // 메시지 기준도 3.0으로 맞춤
         colorVar = style.getPropertyValue('--accent-blue');
         msg = "TOO LOW"; 
-    } else if (cents > 1.0) { 
+    } else if (cents > 3.0) { 
         colorVar = style.getPropertyValue('--accent-pink');
         msg = "TOO HIGH"; 
     } else {
-        // 1.0 이내지만 아직 스무딩/조건 등으로 락 안걸린 찰나
         colorVar = style.getPropertyValue('--accent-green');
         msg = "HOLD...";
     }
@@ -623,7 +616,9 @@ function renderTextUI(note, octave, cents, frequency, locked) {
 }
 
 function updateVisualizer() {
-    displayCents += (targetCents - displayCents) * 0.4; 
+    // 락킹되면 바늘이 더 빠르게 중앙으로 꽂힘 (0.4 -> 0.6)
+    const lerpFactor = isLocked ? 0.6 : 0.4;
+    displayCents += (targetCents - displayCents) * lerpFactor; 
 
     let percentage = 50 + displayCents;
     if (percentage < 5) percentage = 5; 
