@@ -1,6 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
+    // HPF 50Hz: 저음 잡음 제거
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -112,8 +113,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-const freqSmoother = new MedianSmoother(5); 
-const centsSmoother = new MovingAverage(16); 
+// 필터 설정
+const freqSmoother = new MedianSmoother(7); // 주파수 튐 방지
+const centsSmoother = new MovingAverage(12); // 바늘 움직임 부드럽게
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -126,11 +128,6 @@ let targetCents = 0;
 let isLocked = false;
 let consecutiveNoteCount = 0;
 let lastDetectedNoteFull = "";
-
-// [핵심] 줄 변경 방지용 변수
-let stableStringIndex = -1;        // 현재 확정된 줄
-let pendingStringIndex = -1;       // 바뀔지 간 보고 있는 줄
-let stringStabilityCounter = 0;    // 변경 대기 카운터
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -331,8 +328,9 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
+        // 게인 5.0 (고음역대 증폭)
         gainNode = audioContext.createGain();
-        gainNode.gain.value = 3.0;
+        gainNode.gain.value = 5.0;
 
         compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -50; 
@@ -360,7 +358,6 @@ async function startTuner() {
         freqSmoother.reset();
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
-        stableStringIndex = -1;
         consecutiveNoteCount = 0;
         lastSuccessTime = 0;
         isLocked = false;
@@ -399,7 +396,6 @@ function resetUI() {
     displayCents = 0; targetCents = 0;
     currentDisplayedNote = "--"; 
     lastDetectedStringIndex = -1;
-    stableStringIndex = -1;
     freqSmoother.reset();
     centsSmoother.reset();
     isLocked = false;
@@ -422,6 +418,7 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
+    // 노이즈 게이트 0.04
     if (rms < 0.04) { 
          if (isLocked) {
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
@@ -432,8 +429,6 @@ function processAudio() {
          
          if(rms < 0.01) {
             isLocked = false;
-            // 소리 끊기면 안정화된 줄 정보 리셋 (새로운 연주 대기)
-            stableStringIndex = -1; 
          }
          
         consecutiveNoteCount = 0;
@@ -503,6 +498,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
+// [핵심] 줄 선택 로직 (배음 통합 + 범위 제한)
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -519,26 +515,45 @@ function findClosestString(frequency) {
     let closestStr = null;
     let closestIndex = -1;
 
-    // [핵심 1] 1차 필터: 주파수 범위 ±18% (더 엄격하게 제한)
-    // 5번줄(110Hz)은 130Hz 까지만 허용. 1번줄(330Hz)은 절대 못 들어옴.
-    const candidates = [];
     instData.strings.forEach((str, index) => {
-        if (frequency >= str.freq * 0.82 && frequency <= str.freq * 1.18) {
-            candidates.push({ str, index, diff: Math.abs(frequency - str.freq) });
+        // 1. 배음 통합 (Harmonic Folding)
+        // 입력 주파수가 이 줄의 2배, 3배, 4배 주파수와 비슷하면? -> 이 줄의 소리라고 판단!
+        // 예: 392Hz(G4)가 들어옴 -> G3(196Hz)의 2배음이네? -> G3 줄로 인식!
+        
+        let checkFreq = frequency;
+        
+        // 2배음 체크
+        if (Math.abs(frequency - str.freq * 2) < 10) checkFreq = frequency / 2;
+        // 3배음 체크
+        else if (Math.abs(frequency - str.freq * 3) < 10) checkFreq = frequency / 3;
+        // 4배음 체크
+        else if (Math.abs(frequency - str.freq * 4) < 10) checkFreq = frequency / 4;
+
+        // 2. 주파수 윈도우 (±30%)
+        if (checkFreq < str.freq * 0.7 || checkFreq > str.freq * 1.3) {
+            return;
         }
-    });
 
-    if (candidates.length === 0) return { index: -1 }; 
+        let weight = 1.0;
+        if (lastDetectedStringIndex === index) {
+            weight = 0.8; 
+        }
 
-    candidates.forEach(cand => {
-        if (cand.diff < minDiff) {
-            minDiff = cand.diff;
-            closestStr = cand.str;
-            closestIndex = cand.index;
+        let diff = Math.abs(checkFreq - str.freq);
+        diff = diff * weight;
+
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestStr = str;
+            closestIndex = index;
         }
     });
 
     if (!closestStr) return { index: -1 };
+
+    if (closestIndex !== -1) {
+        lastDetectedStringIndex = closestIndex;
+    }
 
     return { 
         note: closestStr.note, 
@@ -550,39 +565,26 @@ function findClosestString(frequency) {
 
 function updateTuner(frequency) {
     const match = findClosestString(frequency);
-    if(match.index === -1) return; 
+    if (match.index === -1) return;
 
-    // [핵심 2] 줄 변경 잠금 장치 (String Switching Lock)
-    // 현재 안정된 줄이 있고, 새로 감지된 줄이 다르다면?
-    if (stableStringIndex !== -1 && stableStringIndex !== match.index) {
-        // 바로 바꾸지 않고 대기 (Debounce)
-        if (pendingStringIndex !== match.index) {
-            pendingStringIndex = match.index;
-            stringStabilityCounter = 0;
-        } else {
-            stringStabilityCounter++;
-        }
-
-        // 새로운 줄 신호가 25프레임(약 0.4초) 이상 지속되어야만 변경 허용
-        if (stringStabilityCounter < 25) {
-            // 변경 거부: 기존 줄 정보로 강제 고정 (주파수만 현재값 사용)
-            // 주의: 기존 줄의 주파수를 써야 함. 안 그러면 1번줄 치는데 5번줄 UI에 330Hz로 계산되어 오차 폭발함.
-            // 여기서는 아예 UI 업데이트를 막는게 안전.
-            return;
-        }
-    }
-
-    // 줄 변경 확정
-    stableStringIndex = match.index;
-    pendingStringIndex = -1;
-    stringStabilityCounter = 0;
+    // 만약 배음 보정으로 checkFreq가 조정되었다면 그것을 기준으로 계산해야 함
+    // findClosestString은 가장 가까운 줄의 "targetFreq"를 반환함.
+    // 문제는 frequency가 여전히 고음(배음)일 수 있다는 점.
+    // 따라서 센트 계산 시에도 배음을 접어서(Fold) 계산해야 함.
     
-    // 이펙트 처리
-    let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
+    let calcFreq = frequency;
+    // 2배음이면 /2, 3배음이면 /3 ... 
+    // 타겟 주파수와의 비율을 보고 가장 가까운 정수배로 나눔
+    let ratio = Math.round(frequency / match.targetFreq);
+    if (ratio > 1) calcFreq = frequency / ratio;
+
+    let rawCents = 1200 * Math.log2(calcFreq / match.targetFreq);
+    
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
 
     const currentNoteKey = match.note + match.octave;
+    
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
@@ -597,13 +599,14 @@ function updateTuner(frequency) {
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
     
-    processCentsAndUI(match.note, match.octave, rawCents, frequency);
+    processCentsAndUI(match.note, match.octave, rawCents, match.targetFreq); // frequency 대신 targetFreq 보여주거나 calcFreq 보여줌
 }
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
+    // 락킹 범위: ±3.0 (진입), ±6.0 (유지)
     const LOCK_ENTER_THRESHOLD = 3.0; 
     const LOCK_EXIT_THRESHOLD = 6.0;  
 
@@ -624,6 +627,7 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
         }
     }
 
+    // 주파수 표시는 실제 들리는 Hz가 아니라, 사용자가 맞추려는 줄의 기준 Hz를 보여주는게 덜 헷갈림
     renderTextUI(noteName, octave, targetCents, frequency, isLocked); 
 }
 
@@ -632,7 +636,10 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     octaveEl.textContent = octave;
     noteNameEl.classList.add('active');
     
-    freqEl.textContent = frequency.toFixed(1) + " Hz";
+    // 주파수는 튜닝하려는 줄의 목표 주파수로 표시 (안정감)
+    // 혹은 현재 오차만큼 더해서 표시
+    let displayFreq = frequency * Math.pow(2, cents / 1200);
+    freqEl.textContent = displayFreq.toFixed(1) + " Hz";
     
     const roundedCents = Math.round(cents);
     let displayStr = locked ? "OK" : (roundedCents > 0 ? "+" : "") + roundedCents;
