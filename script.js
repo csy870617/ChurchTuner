@@ -1,6 +1,7 @@
 //
 // --- 1. 악기 데이터 ---
 const instruments = {
+    // 6번줄 보호를 위한 HPF 60Hz 유지
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard", range: [60, 1000], hpf: 60, strings: [ 
         { note: "E", octave: 2, freq: 82.41 }, { note: "A", octave: 2, freq: 110.00 }, 
         { note: "D", octave: 3, freq: 146.83 }, { note: "G", octave: 3, freq: 196.00 }, 
@@ -14,6 +15,30 @@ const instruments = {
     ukulele: { name: "UKULELE", icon: "🌴", detail: "High-G", range: [200, 1000], hpf: 150, strings: [ 
         { note: "G", octave: 4, freq: 392.00 }, { note: "C", octave: 4, freq: 261.63 }, 
         { note: "E", octave: 4, freq: 329.63 }, { note: "A", octave: 4, freq: 440.00 } 
+    ] },
+    violin: { name: "VIOLIN", icon: "🎻", detail: "Orchestra", range: [180, 1200], hpf: 150, strings: [ 
+        { note: "G", octave: 3, freq: 196.00 }, { note: "D", octave: 4, freq: 293.66 }, 
+        { note: "A", octave: 4, freq: 440.00 }, { note: "E", octave: 5, freq: 659.25 } 
+    ] },
+    cello: { name: "CELLO", icon: "🎻", detail: "Orchestra", range: [60, 600], hpf: 50, strings: [ 
+        { note: "C", octave: 2, freq: 65.41 }, { note: "G", octave: 2, freq: 98.00 }, 
+        { note: "D", octave: 3, freq: 146.83 }, { note: "A", octave: 3, freq: 220.00 } 
+    ] },
+    doublebass: { name: "D.BASS", icon: "🎻", detail: "Orchestra", range: [30, 300], hpf: 25, strings: [ 
+        { note: "E", octave: 1, freq: 41.20 }, { note: "A", octave: 1, freq: 55.00 }, 
+        { note: "D", octave: 2, freq: 73.42 }, { note: "G", octave: 2, freq: 98.00 } 
+    ] },
+    flute: { name: "FLUTE", icon: "🎼", detail: "C Inst.", range: [200, 2000], hpf: 200, strings: [ 
+        { note: "A", octave: 4, freq: 440.00 }, { note: "A#", octave: 4, freq: 466.16 } 
+    ] },
+    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Inst.", range: [100, 1500], hpf: 100, strings: [ 
+        { note: "A#", octave: 3, freq: 233.08 }, { note: "F", octave: 4, freq: 349.23 } 
+    ] },
+    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Inst.", range: [100, 1200], hpf: 100, strings: [ 
+        { note: "D#", octave: 3, freq: 311.13 }, { note: "A#", octave: 3, freq: 466.16 } 
+    ] },
+    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", range: [150, 1200], hpf: 150, strings: [ 
+        { note: "A#", octave: 3, freq: 233.08 }, { note: "F", octave: 4, freq: 349.23 } 
     ] }
 };
 
@@ -76,7 +101,7 @@ function init() {
 
 function handleInstClick(pill) {
     const type = pill.dataset.type;
-    if(currentInstrument === 'ukulele' && type === 'ukulele') { openModal(); return; }
+    if(pill.id === 'dynamic-inst-card' && pill.classList.contains('active')) { openModal(); return; }
     activateInstrument(type, pill);
 }
 
@@ -88,8 +113,9 @@ function loadSettings() {
         dynName.textContent = instruments[savedDyn].name;
         dynamicCard.dataset.type = savedDyn;
     }
-    const pill = document.querySelector(`.inst-pill[data-type="${saved}"]`) || document.querySelector('.inst-pill[data-type="guitar"]');
-    activateInstrument(saved, pill);
+    let targetPill = document.querySelector(`.inst-pill[data-type="${saved}"]`);
+    if (!targetPill) targetPill = dynamicCard;
+    activateInstrument(saved, targetPill);
 }
 
 function activateInstrument(key, pill) {
@@ -97,7 +123,12 @@ function activateInstrument(key, pill) {
     pill.classList.add('active');
     currentInstrument = key;
     localStorage.setItem('churchTuner_current', key);
-    if(key !== 'guitar' && key !== 'bass') localStorage.setItem('churchTuner_dynamic', key);
+    if(key !== 'guitar' && key !== 'bass') {
+        localStorage.setItem('churchTuner_dynamic', key);
+        dynIcon.textContent = instruments[key].icon;
+        dynName.textContent = instruments[key].name;
+        dynamicCard.dataset.type = key;
+    }
     if(isRunning) applyFilters();
     resetUI();
 }
@@ -110,49 +141,22 @@ function generateModalList() {
         const div = document.createElement('div');
         div.className = 'inst-option';
         div.innerHTML = `<div class="opt-icon">${inst.icon}</div><div class="opt-info"><span class="opt-name">${inst.name}</span><span class="opt-detail">${inst.detail}</span></div>`;
-        div.addEventListener('click', () => selectDynamicInstrument(key));
+        div.addEventListener('click', () => { activateInstrument(key, dynamicCard); modal.classList.add('hidden'); });
         modalList.appendChild(div);
     });
 }
 function openModal() { modal.classList.remove('hidden'); }
-function selectDynamicInstrument(key) {
-    const inst = instruments[key];
-    dynIcon.textContent = inst.icon; dynName.textContent = inst.name; dynamicCard.dataset.type = key;
-    modal.classList.add('hidden'); activateInstrument(key, dynamicCard);
-}
 
-// [핵심] 띵동~ 사운드 (벨소리 효과)
 function playSuccessSound() {
     if (!audioContext) return;
     const now = Date.now(); if (now - lastSuccessTime < 1500) return; lastSuccessTime = now;
     const t = audioContext.currentTime;
-
-    // 1. 고음 (띵)
-    const osc1 = audioContext.createOscillator();
-    const gain1 = audioContext.createGain();
-    osc1.frequency.value = 1318.51; // E6 (High Note)
-    osc1.type = 'sine';
-    
-    // 2. 저음 (동) - 약간의 시간차
-    const osc2 = audioContext.createOscillator();
-    const gain2 = audioContext.createGain();
-    osc2.frequency.value = 1046.50; // C6
-    osc2.type = 'triangle'; // 배음이 섞인 풍부한 소리
-
-    // 볼륨 엔벨롭 (종소리처럼 감쇄)
-    gain1.gain.setValueAtTime(0, t);
-    gain1.gain.linearRampToValueAtTime(0.4, t + 0.05); // Attack
-    gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.2); // Decay
-
-    gain2.gain.setValueAtTime(0, t);
-    gain2.gain.linearRampToValueAtTime(0.3, t + 0.05);
-    gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
-
-    osc1.connect(gain1).connect(audioContext.destination);
-    osc2.connect(gain2).connect(audioContext.destination);
-
-    osc1.start(t); osc1.stop(t + 1.2);
-    osc2.start(t); osc2.stop(t + 1.5);
+    const osc1 = audioContext.createOscillator(); const gain1 = audioContext.createGain(); osc1.frequency.value = 1318.51; osc1.type = 'sine';
+    const osc2 = audioContext.createOscillator(); const gain2 = audioContext.createGain(); osc2.frequency.value = 1046.50; osc2.type = 'triangle';
+    gain1.gain.setValueAtTime(0, t); gain1.gain.linearRampToValueAtTime(0.4, t + 0.05); gain1.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+    gain2.gain.setValueAtTime(0, t); gain2.gain.linearRampToValueAtTime(0.3, t + 0.05); gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+    osc1.connect(gain1).connect(audioContext.destination); osc2.connect(gain2).connect(audioContext.destination);
+    osc1.start(t); osc1.stop(t + 1.2); osc2.start(t); osc2.stop(t + 1.5);
 }
 
 function toggleTuner() { isRunning ? stopTuner() : startTuner(); }
@@ -183,7 +187,7 @@ function applyFilters() {
     if(!highPassFilter) return;
     const data = instruments[currentInstrument];
     highPassFilter.frequency.value = (currentInstrument === 'guitar') ? 60 : (data.hpf || 30);
-    lowPassFilter.frequency.value = (currentInstrument === 'guitar' || currentInstrument === 'ukulele') ? 5000 : 1000;
+    lowPassFilter.frequency.value = 5000; 
 }
 
 function stopTuner() {
@@ -209,10 +213,17 @@ function processAudio() {
     analyser.getFloatTimeDomainData(buf);
     let rms = 0; for(let i=0; i<buf.length; i++) rms += buf[i]*buf[i]; rms = Math.sqrt(rms/buf.length);
 
-    if(rms < 0.03) {
+    // [수정] 소음 게이트 강화: 0.04 -> 0.05
+    // 너무 작은 소리(잡음)는 아예 무시
+    if(rms < 0.05) {
         if(isLocked) { if(Math.abs(targetAngle) > 1) targetAngle *= 0.9; }
         else { if(Math.abs(targetAngle) > 1) targetAngle *= 0.8; else targetAngle = 0; }
-        if(rms < 0.01) { isLocked = false; stableStringIndex = -1; document.body.className = ""; centsEl.classList.remove('visible');}
+        
+        // 소리가 완전히 끊기면 리셋
+        if(rms < 0.01) { 
+            isLocked = false; stableStringIndex = -1; 
+            document.body.className = ""; centsEl.classList.remove('visible');
+        }
         consecutiveNoteCount = 0; requestAnimationFrame(processAudio); return;
     }
 
@@ -243,6 +254,7 @@ function yin(buffer, sampleRate) {
     return -1;
 }
 
+// [핵심] 3배음 무시 + 초정밀 윈도우 (±15%)
 function findNote(frequency) {
     const data = instruments[currentInstrument];
     if(data.isChromatic) {
@@ -250,12 +262,19 @@ function findNote(frequency) {
         return { note: noteStrings[n%12], octave: Math.floor(n/12)-1, target: 440*Math.pow(2,(n-69)/12), index:-1 };
     }
     let minDiff=Infinity; let match=null; let matchIdx=-1;
+    
     data.strings.forEach((str, idx) => {
         let diff1 = Math.abs(frequency - str.freq);
         let diff2 = Math.abs(frequency - str.freq*2);
+        
         let bestDiff = Infinity;
-        if(frequency>=str.freq*0.7 && frequency<=str.freq*1.3) bestDiff = diff1;
-        else if(frequency>=(str.freq*2)*0.7 && frequency<=(str.freq*2)*1.3) bestDiff = diff2;
+        
+        // [중요] 윈도우를 ±15%로 축소 (기존 30%)
+        // 6번줄 E2(82Hz) -> 상한선 ~94Hz. 
+        // 5번줄 A2(110Hz) -> 하한선 ~93.5Hz.
+        // 서로 겹칠 일이 거의 없음. 6번줄 E2가 절대 A2로 넘어가지 않음.
+        if(frequency >= str.freq*0.85 && frequency <= str.freq*1.15) bestDiff = diff1;
+        else if(frequency >= (str.freq*2)*0.85 && frequency <= (str.freq*2)*1.15) bestDiff = diff2;
         
         if(bestDiff !== Infinity) {
              let weight = (stableStringIndex === idx) ? 0.5 : 1.0;
@@ -295,7 +314,6 @@ function updateTuner(freq) {
 
 function renderUI(note, oct, cents, freq) {
     noteNameEl.textContent = note; octaveEl.textContent = oct; noteNameEl.classList.add('active');
-    // 목표 주파수 표시
     freqEl.textContent = freq.toFixed(1) + " Hz";
     
     let dispCents = Math.round(cents);
