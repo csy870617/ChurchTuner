@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF를 30Hz로 통일하여 저음 손실 방지
+    // [수정] 기타 HPF 30Hz 유지 / range는 참고용, 실제 LPF는 코드에서 5000Hz로 강제 개방
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 30, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -88,9 +88,7 @@ let mediaStream = null;
 let isRunning = false; 
 let inputSource = null;
 
-// [신규] 프리앰프 (Gain Node)
 let gainNode = null; 
-
 let lowPassFilter = null; 
 let highPassFilter = null; 
 let compressor = null;   
@@ -98,8 +96,8 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 스무딩 8 유지 (반응성과 안정성 균형)
-const centsSmoother = new MovingAverage(8); 
+// 스무딩 12 (안정적 움직임)
+const centsSmoother = new MovingAverage(12); 
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -241,7 +239,6 @@ function highlightStringBtn(noteName, octave, isLocked) {
     if (instruments[currentInstrument].isChromatic) return;
     const btns = document.querySelectorAll('.string-btn');
     
-    // PERFECT 기준 ±3.0센트
     const isPerfect = Math.abs(targetCents) <= 3.0;
 
     btns.forEach(btn => {
@@ -313,13 +310,13 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // [핵심 1] 프리앰프 (입력 증폭)
-        // Gain을 3.0으로 설정하여 1번, 2번 줄 같은 작은 소리도 크게 받음
+        // [핵심 1] 입력 게인 증폭 (3.0 -> 5.0)
+        // 얇은 줄의 작은 소리도 크게 증폭
         gainNode = audioContext.createGain();
-        gainNode.gain.value = 3.0;
+        gainNode.gain.value = 5.0;
 
         compressor = audioContext.createDynamicsCompressor();
-        compressor.threshold.value = -50; // 더 작은 소리부터 압축 시작
+        compressor.threshold.value = -50; 
         compressor.ratio.value = 8;       
 
         highPassFilter = audioContext.createBiquadFilter();
@@ -332,7 +329,6 @@ async function startTuner() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUF_SIZE;
 
-        // 연결: Source -> Gain(증폭) -> Compressor -> HPF -> LPF -> Analyzer
         inputSource.connect(gainNode);
         gainNode.connect(compressor);
         compressor.connect(highPassFilter);
@@ -362,7 +358,14 @@ function applyInstrumentFilter() {
     const hpfVal = instData.hpf || 30;
     highPassFilter.frequency.value = hpfVal;
 
-    const maxFreq = instData.range ? instData.range[1] : 1000; 
+    // [핵심 2] LPF 천장 개방 (1000Hz -> 5000Hz)
+    // 기타 1, 2번 줄의 배음(Harmonics)이 잘리던 문제를 해결
+    // 이제 찰랑거리는 고음역대 소리도 인식합니다.
+    let maxFreq = instData.range ? instData.range[1] : 1000;
+    if (currentInstrument === 'guitar' || currentInstrument === 'ukulele') {
+        maxFreq = 5000; 
+    }
+    
     lowPassFilter.frequency.value = maxFreq;
 }
 
@@ -400,9 +403,9 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [핵심 2] 노이즈 게이트 조정 (0.01)
-    // 증폭된 신호 기준으로 노이즈 판단 (작은 소리도 허용)
-    if (rms < 0.01) { 
+    // [핵심 3] 노이즈 게이트 조정 (0.005)
+    // 증폭된 신호지만 여전히 1,2번 줄은 에너지가 작으므로 낮은 값 허용
+    if (rms < 0.005) { 
          if (isLocked) {
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
          } else {
@@ -410,8 +413,7 @@ function processAudio() {
              else targetCents = 0;
          }
          
-         // 완전 무음
-         if(rms < 0.005) {
+         if(rms < 0.002) {
             isLocked = false;
          }
          
@@ -426,9 +428,9 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    // [핵심 3] 임계값 완화 (0.15)
-    // 고음역대 얇은 줄의 파형도 잘 잡도록 표준 값보다 약간 넉넉하게 설정
-    const threshold = 0.15; 
+    // [핵심 4] YIN 임계값 완화 (0.20)
+    // 고음역대 파형은 빨리 소멸하므로 조금 더 관대하게 판정
+    const threshold = 0.20; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
     const yinBuffer = new Float32Array(bufferSize / 2);
@@ -454,8 +456,8 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        // 신뢰도 체크 완화 (0.15)
-        if (yinBuffer[tauEstimate] > 0.15) return -1; 
+        // 신뢰도 체크 완화
+        if (yinBuffer[tauEstimate] > 0.20) return -1; 
 
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -504,8 +506,6 @@ function findClosestString(frequency) {
         }
 
         let diff = Math.abs(frequency - str.freq);
-        
-        // 배음 로직 제거 상태 유지 (가장 정확함)
         diff = diff * weight;
 
         if (diff < minDiff) {
@@ -558,8 +558,9 @@ function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
     let smoothedCents = centsSmoother.getAverage(); 
 
-    const LOCK_ENTER_THRESHOLD = 3.0; // 3.0 이내 진입
-    const LOCK_EXIT_THRESHOLD = 6.0;  // 6.0 벗어나면 해제
+    // 진입 3.0, 탈출 6.0
+    const LOCK_ENTER_THRESHOLD = 3.0; 
+    const LOCK_EXIT_THRESHOLD = 6.0;  
 
     if (isLocked) {
         if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
