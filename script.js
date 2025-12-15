@@ -1,7 +1,7 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    // HPF 50Hz: 저음 잡음 제거
+    // HPF 50Hz 유지 (잡음 제거 최적화)
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
@@ -129,11 +129,6 @@ let isLocked = false;
 let consecutiveNoteCount = 0;
 let lastDetectedNoteFull = "";
 
-// 줄 변경 잠금 변수
-let stableStringIndex = -1;
-let pendingStringIndex = -1;
-let stringStabilityCounter = 0;
-
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
 const btnText = startBtn.querySelector('.btn-text');
@@ -258,29 +253,11 @@ function renderStringButtons(instType) {
     });
 }
 
+// [수정] 줄 버튼 불 들어오게 하는 기능 삭제 (빈 함수)
 function highlightStringBtn(noteName, octave, isLocked) {
-    if (instruments[currentInstrument].isChromatic) return;
-    const btns = document.querySelectorAll('.string-btn');
-    
-    const isPerfect = Math.abs(targetCents) <= 3.0;
-
-    btns.forEach(btn => {
-        const isCurrentDetected = (btn.dataset.note === noteName && parseInt(btn.dataset.octave) === octave);
-
-        btn.classList.remove('detected', 'locked', 'tuned');
-        btn.style.transform = "scale(1)";
-        btn.style.boxShadow = "none";
-
-        if (isCurrentDetected) {
-            if (isLocked) { 
-                btn.classList.add('tuned'); 
-                btn.style.transform = "scale(1.05)";
-                btn.style.boxShadow = "0 0 30px var(--accent-green)";
-            } else {
-                btn.classList.add('detected'); 
-            }
-        }
-    });
+    // 목사님 요청: 버튼 불 켜짐 기능 완전 제거
+    // UI 혼란 방지를 위해 아무 동작도 하지 않음.
+    return;
 }
 
 function playSuccessSound() {
@@ -363,7 +340,6 @@ async function startTuner() {
         freqSmoother.reset();
         centsSmoother.reset();
         lastDetectedStringIndex = -1;
-        stableStringIndex = -1;
         consecutiveNoteCount = 0;
         lastSuccessTime = 0;
         isLocked = false;
@@ -409,6 +385,8 @@ function resetUI() {
     freqEl.textContent = "0.0 Hz"; centsEl.classList.add('hidden');
     tuningIndicator.style.backgroundColor = "var(--accent-green)";
     tuningIndicator.style.boxShadow = "none";
+    
+    // 버튼 초기화 기능 삭제 (어차피 안 켜지므로)
     document.querySelectorAll('.string-btn').forEach(b => {
         b.classList.remove('detected', 'locked', 'tuned');
         b.style.transform = "scale(1)";
@@ -435,7 +413,6 @@ function processAudio() {
          
          if(rms < 0.01) {
             isLocked = false;
-            stableStringIndex = -1; 
          }
          
         consecutiveNoteCount = 0;
@@ -505,7 +482,7 @@ function yinPitchDetection(buffer, sampleRate) {
     return pitchInHz;
 }
 
-// [핵심] 3배음 이상 무시 -> 2번, 1번줄 오인식 원천 차단
+// [핵심] 줄 선택 로직 단순화
 function findClosestString(frequency) {
     const instData = instruments[currentInstrument];
     
@@ -522,51 +499,14 @@ function findClosestString(frequency) {
     let closestStr = null;
     let closestIndex = -1;
 
-    // [1차 필터링] 주파수 범위 ±30%
-    const candidates = [];
     instData.strings.forEach((str, index) => {
-        // [중요] 2배음(Octave)까지만 허용
-        // 3배음, 4배음 체크는 절대 하지 않음! (6번줄->2번줄, 5번줄->1번줄 오인식의 주범)
+        // [중요] 모든 배음 로직 삭제. 오직 가장 가까운 기본 주파수만 찾음.
+        let diff = Math.abs(frequency - str.freq);
         
-        let diff1 = Math.abs(frequency - str.freq);        // 기본음
-        let diff2 = Math.abs(frequency - (str.freq * 2));  // 2배음 (옥타브)
-
-        // 둘 중 더 가까운 것 선택 (단, 둘 다 멀면 탈락)
-        // diff1이 가까우면 기본음, diff2가 가까우면 2배음
-        
-        let bestDiff = Infinity;
-        
-        // 기본음과 비슷하면
-        if (frequency >= str.freq * 0.7 && frequency <= str.freq * 1.3) {
-            bestDiff = diff1;
-        } 
-        // 2배음과 비슷하면 (164Hz -> 82Hz Low E)
-        else if (frequency >= (str.freq * 2) * 0.7 && frequency <= (str.freq * 2) * 1.3) {
-            bestDiff = diff2; // 오차는 작게 잡아주지만, 실제로는 옥타브 위
-        }
-
-        if (bestDiff !== Infinity) {
-            candidates.push({ str, index, diff: bestDiff });
-        }
-    });
-
-    if (candidates.length === 0) return { index: -1 }; 
-
-    candidates.forEach(cand => {
-        let weight = 1.0;
-        
-        // 고음줄(1,2번) 우선순위 (미세하게)
-        if (cand.index >= 4) weight = 0.9; 
-
-        if (stableStringIndex !== -1 && stableStringIndex === cand.index) {
-            weight = 0.5; 
-        }
-        
-        let finalDiff = cand.diff * weight;
-        if (finalDiff < minDiff) {
-            minDiff = finalDiff;
-            closestStr = cand.str;
-            closestIndex = cand.index;
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestStr = str;
+            closestIndex = index;
         }
     });
 
@@ -584,33 +524,14 @@ function updateTuner(frequency) {
     const match = findClosestString(frequency);
     if(match.index === -1) return; 
 
-    // 줄 변경 잠금 로직
-    if (stableStringIndex !== -1 && stableStringIndex !== match.index) {
-        if (pendingStringIndex !== match.index) {
-            pendingStringIndex = match.index;
-            stringStabilityCounter = 0;
-        } else {
-            stringStabilityCounter++;
-        }
-        if (stringStabilityCounter < 25) return;
-    }
-
-    stableStringIndex = match.index;
-    pendingStringIndex = -1;
-    stringStabilityCounter = 0;
-    
-    // 센트 계산: 2배음 보정만 수행
-    let calcFreq = frequency;
-    if (Math.abs(frequency - match.targetFreq * 2) < 20) {
-        calcFreq = frequency / 2;
-    }
-
-    let rawCents = 1200 * Math.log2(calcFreq / match.targetFreq);
+    // 센트 계산
+    let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
 
     const currentNoteKey = match.note + match.octave;
+    
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
@@ -693,6 +614,7 @@ function renderTextUI(note, octave, cents, frequency, locked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
+    // highlightStringBtn 호출은 하지만 내부는 비어있음
     highlightStringBtn(note, octave, locked);
     
     tuningIndicator.style.backgroundColor = colorVar;
