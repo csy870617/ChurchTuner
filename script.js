@@ -103,14 +103,14 @@ let lastDetectedStringIndex = -1;
 
 let isNoteLocked = false;
 let lockDuration = 0; 
-const LOCK_REQUIRED_FRAMES = 12; 
+const LOCK_REQUIRED_FRAMES = 12; // 기준은 유지하되
 const LOCK_TOLERANCE_CENTS = 5;  
 const UNLOCK_THRESHOLD_CENTS = 25; 
 
 let displayCents = 0; 
 let targetCents = 0;
 
-// [소음 방지용 변수]
+// [소음 방지용]
 let consecutiveNoteCount = 0;
 let lastDetectedNoteFull = "";
 
@@ -280,7 +280,7 @@ function playSuccessSound() {
     osc.start(); osc.stop(t + 0.4);
 }
 
-// --- 5. 오디오 처리 (노이즈 필터링 극대화) ---
+// --- 5. 오디오 처리 ---
 function toggleTuner() { if (isRunning) stopTuner(); else startTuner(); }
 
 async function startTuner() {
@@ -299,17 +299,14 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // 1. 컴프레서 (잡음 증폭 방지 위해 감도 완화)
         compressor = audioContext.createDynamicsCompressor();
-        compressor.threshold.value = -35; // 기존 -50에서 상향 (작은 소리 무시)
-        compressor.ratio.value = 8;       // 압축 비율 완화
+        compressor.threshold.value = -35; 
+        compressor.ratio.value = 8;       
 
-        // 2. High-Pass Filter (30Hz -> 50Hz 상향: 웅웅거림 차단)
         highPassFilter = audioContext.createBiquadFilter();
         highPassFilter.type = "highpass";
         highPassFilter.frequency.value = 50; 
 
-        // 3. Low-Pass Filter
         lowPassFilter = audioContext.createBiquadFilter();
         lowPassFilter.type = "lowpass";
         
@@ -380,16 +377,13 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // [중요] 노이즈 게이트 대폭 상향 (0.012 -> 0.04)
-    // 주변 소음에는 반응하지 않도록 설정
+    // 소음 게이트
     if (rms < 0.04) { 
         if (!isNoteLocked) {
-             // 소리가 작으면 바늘을 중앙으로 서서히 복귀
              if (Math.abs(targetCents) > 1) {
                  targetCents *= 0.8;
              }
         }
-        // UI 초기화 카운터
         consecutiveNoteCount = 0;
         requestAnimationFrame(processAudio);
         return;
@@ -427,9 +421,7 @@ function yinPitchDetection(buffer, sampleRate) {
     }
 
     if (tauEstimate !== -1) {
-        // [신규] 소리의 선명도(Confidence) 체크
-        // YIN 결과값이 너무 높으면(1에 가까우면) 잡음일 확률 높음 -> 무시
-        if (yinBuffer[tauEstimate] > 0.08) return -1; // 엄격한 기준 적용
+        if (yinBuffer[tauEstimate] > 0.08) return -1; 
 
         const x0 = tauEstimate;
         const x1 = (x0 < 1) ? x0 : x0 - 1;
@@ -512,17 +504,16 @@ function updateTuner(frequency) {
     while (rawCents > 600) rawCents -= 1200;
     while (rawCents < -600) rawCents += 1200;
 
-    // [소음 방지] 같은 노트가 2프레임 이상 연속 감지되어야 UI 변경
     const currentNoteKey = match.note + match.octave;
     
     if (currentNoteKey !== lastDetectedNoteFull) {
         lastDetectedNoteFull = currentNoteKey;
         consecutiveNoteCount = 0;
-        return; // 아직 UI 업데이트 안 함
+        return; 
     }
 
     consecutiveNoteCount++;
-    if (consecutiveNoteCount < 2) return; // 2프레임 대기
+    if (consecutiveNoteCount < 2) return; 
 
     currentDisplayedNote = match.note;
     currentDisplayedOctave = match.octave;
@@ -545,8 +536,16 @@ function processCentsAndLocking(noteName, octave, rawCents, frequency) {
         }
     } else {
         targetCents = smoothCents;
+        
+        // [수정된 부분] 정확하면 더 빨리 완료됨
         if (Math.abs(smoothCents) <= LOCK_TOLERANCE_CENTS) {
-            lockDuration++;
+            // 기본 1 증가
+            let bonus = 1;
+            // 오차가 3센트 미만이면 보너스 3배 (즉, 4씩 증가 -> 3프레임이면 완료)
+            if (Math.abs(smoothCents) < 3) bonus = 3; 
+            
+            lockDuration += bonus;
+
             if (lockDuration > LOCK_REQUIRED_FRAMES) {
                 isNoteLocked = true;
                 
@@ -601,6 +600,7 @@ function renderTextUI(note, octave, cents, frequency, isLocked) {
     noteNameEl.style.textShadow = `0 0 60px ${colorVar}`;
     centsEl.style.backgroundColor = colorVar;
 
+    // 프레임마다 UI 강제 업데이트
     highlightStringBtn(note, octave, isLocked);
     
     tuningIndicator.style.backgroundColor = colorVar;
