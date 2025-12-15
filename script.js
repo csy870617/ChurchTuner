@@ -1,7 +1,8 @@
 //
 // --- 1. 악기 데이터 (440Hz 표준) ---
 const instruments = {
-    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 30, strings: [ 
+    // HPF 50Hz 유지
+    guitar: { name: "GUITAR", icon: "🎸", detail: "Standard (EADGBE)", range: [60, 1000], hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41, num: 6 }, 
         { note: "A", octave: 2, freq: 110.00, num: 5 }, 
         { note: "D", octave: 3, freq: 146.83, num: 4 }, 
@@ -9,7 +10,7 @@ const instruments = {
         { note: "B", octave: 3, freq: 246.94, num: 2 }, 
         { note: "E", octave: 4, freq: 329.63, num: 1 } 
     ], columns: 3 },
-    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], hpf: 25, strings: [ 
+    bass: { name: "BASS", icon: "🎸", detail: "Standard (EADG)", range: [30, 400], hpf: 28, strings: [ 
         { note: "E", octave: 1, freq: 41.20, num: 4 }, 
         { note: "A", octave: 1, freq: 55.00, num: 3 }, 
         { note: "D", octave: 2, freq: 73.42, num: 2 }, 
@@ -60,7 +61,24 @@ const instruments = {
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// --- 2. 안정화 유틸리티 (중간값 필터) ---
+// --- 2. 안정화 유틸리티 ---
+class MovingAverage {
+    constructor(size) {
+        this.size = size;
+        this.buffer = [];
+    }
+    add(value) {
+        this.buffer.push(value);
+        if (this.buffer.length > this.size) this.buffer.shift();
+    }
+    getAverage() {
+        if (this.buffer.length === 0) return 0;
+        const sum = this.buffer.reduce((a, b) => a + b, 0);
+        return sum / this.buffer.length;
+    }
+    reset() { this.buffer = []; }
+}
+
 class MedianSmoother {
     constructor(size) {
         this.size = size;
@@ -95,9 +113,9 @@ let compressor = null;
 const BUF_SIZE = 4096;
 const buf = new Float32Array(BUF_SIZE);
 
-// 주파수 및 바늘 안정화 필터
+// 필터 설정
 const freqSmoother = new MedianSmoother(5); 
-const centsSmoother = new MedianSmoother(15); 
+const centsSmoother = new MovingAverage(16); // 이동 평균으로 바늘 움직임 부드럽게
 
 let currentDisplayedNote = "--"; 
 let currentDisplayedOctave = 0;
@@ -310,7 +328,7 @@ async function startTuner() {
         
         inputSource = audioContext.createMediaStreamSource(mediaStream);
         
-        // 게인 3.0 유지
+        // 게인 3.0
         gainNode = audioContext.createGain();
         gainNode.gain.value = 3.0;
 
@@ -400,7 +418,6 @@ function processAudio() {
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / buf.length);
     
-    // 노이즈 게이트 0.04
     if (rms < 0.04) { 
          if (isLocked) {
              if (Math.abs(targetCents) > 1) targetCents *= 0.9;
@@ -428,7 +445,6 @@ function processAudio() {
 }
 
 function yinPitchDetection(buffer, sampleRate) {
-    // 임계값 0.15
     const threshold = 0.15; 
     const bufferSize = buffer.length;
     let tauEstimate = -1; let pitchInHz = -1;
@@ -498,17 +514,15 @@ function findClosestString(frequency) {
     let closestIndex = -1;
 
     instData.strings.forEach((str, index) => {
-        let weight = 1.0;
-        // 접착력
-        if (lastDetectedStringIndex === index) {
-            weight = 0.8; 
+        // [핵심] 엄격한 주파수 윈도우 (±30% 이내만 허용)
+        // 5번줄(110Hz)은 143Hz 이상을 아예 받지 않으므로, 1번줄(330Hz)이 들어올 틈이 없음.
+        if (frequency < str.freq * 0.7 || frequency > str.freq * 1.3) {
+            return; // Skip mismatching strings
         }
 
-        // [핵심] 주파수 범위 체크 (1번줄 E vs 5번줄 A 혼동 방지)
-        // 입력 주파수가 줄의 기본 주파수 범위(±40%) 밖이면 후보에서 제외
-        // 예: 330Hz 입력 -> 110Hz(A)는 탈락, 329Hz(E)는 통과
-        if (frequency < str.freq * 0.6 || frequency > str.freq * 1.4) {
-            return; // Skip this string
+        let weight = 1.0;
+        if (lastDetectedStringIndex === index) {
+            weight = 0.8; 
         }
 
         let diff = Math.abs(frequency - str.freq);
@@ -521,14 +535,13 @@ function findClosestString(frequency) {
         }
     });
 
-    if (closestIndex !== -1) {
-        lastDetectedStringIndex = closestIndex;
+    // 아무 줄도 매칭되지 않으면? (유령 소리)
+    if (!closestStr) {
+        return { note: currentDisplayedNote, octave: currentDisplayedOctave, targetFreq: 440, index: -1 }; // 기존 유지
     }
 
-    // 만약 범위를 벗어나서 아무것도 못 찾았다면 (Chromtic fallback 등은 생략하고 기존 유지)
-    if (!closestStr) {
-        // 기존 상태 유지 또는 리턴
-        return { note: currentDisplayedNote, octave: currentDisplayedOctave, targetFreq: 440, index: -1 }; 
+    if (closestIndex !== -1) {
+        lastDetectedStringIndex = closestIndex;
     }
 
     return { 
@@ -541,7 +554,9 @@ function findClosestString(frequency) {
 
 function updateTuner(frequency) {
     const match = findClosestString(frequency);
-    if(match.index === -1) return; // 못찾았으면 무시
+    
+    // 매칭 실패 시 아무것도 안 함 (널뛰기 방지)
+    if(match.index === -1) return;
 
     let rawCents = 1200 * Math.log2(frequency / match.targetFreq);
     
@@ -569,22 +584,16 @@ function updateTuner(frequency) {
 
 function processCentsAndUI(noteName, octave, rawCents, frequency) {
     centsSmoother.add(rawCents);
-    let smoothedCents = centsSmoother.getValue(); 
+    let smoothedCents = centsSmoother.getAverage(); // 이동 평균 사용
 
-    // 락킹 범위 유지
     const LOCK_ENTER_THRESHOLD = 3.0; 
     const LOCK_EXIT_THRESHOLD = 6.0;  
 
-    // [핵심] 점프 방지 (Locked 상태에서 급격한 변화 무시)
-    // 락킹 중인데 값이 10센트 이상 튀면(2번줄 옥타브 점프 등) 무시하고 유지
     if (isLocked) {
-        if (Math.abs(smoothedCents) > 10.0) {
-            // 값이 튀었으므로 업데이트 안 함 (기존 targetCents 유지)
-            // 단, 너무 오래 튀면(새로운 줄) 위에서 updateTuner가 리셋해줌
-        } else if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
-            targetCents = 0; // 정상 범위 내 흔들림 -> 고정
+        if (Math.abs(smoothedCents) < LOCK_EXIT_THRESHOLD) {
+            targetCents = 0; 
         } else {
-            isLocked = false; // 범위 서서히 벗어남 -> 해제
+            isLocked = false; 
             targetCents = smoothedCents;
         }
     } else {
@@ -645,7 +654,6 @@ function renderTextUI(note, octave, cents, frequency, locked) {
 }
 
 function updateVisualizer() {
-    // 락킹 시 시각적 완전 고정
     if (isLocked) {
         displayCents = 0;
     } else {
