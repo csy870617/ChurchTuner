@@ -45,14 +45,18 @@ let gainNode = null; let lowPassFilter = null; let highPassFilter = null;
 const BUF_SIZE = 4096; const buf = new Float32Array(BUF_SIZE);
 const freqSmoother = new MedianSmoother(5); 
 
-// --- [강화] 안정화 변수 ---
+// --- 안정화 및 고정(Lock) 변수 ---
 let lastDetectedNoteFull = "";
-let stableStringIndex = -1; // 현재 튜닝 중인 줄 번호 고정
-let stringLockCounter = 0;   // 줄 고정 강도
+let stableStringIndex = -1; 
+let stringLockCounter = 0;   
 let displayAngle = 0; 
 let targetAngle = 0;
 let isLocked = false;
 let framesSinceLastPitch = 0;
+
+// [추가] 고정 임계값 설정
+const LOCK_THRESHOLD = 3.0;   // 이 범위(Cents) 안에 들어오면 중앙 고정
+const UNLOCK_THRESHOLD = 7.0; // 고정된 후, 이 범위를 벗어나야 다시 바늘이 움직임 (히스테리시스)
 
 const startBtn = document.getElementById('start-btn');
 const btnText = startBtn.querySelector('.btn-text');
@@ -143,7 +147,7 @@ function applyFilters() {
     if(!highPassFilter) return;
     const data = instruments[currentInstrument];
     highPassFilter.frequency.value = data.hpf || 40;
-    lowPassFilter.frequency.value = 2000; // 기타/바이올린 배음 영역 제한
+    lowPassFilter.frequency.value = 2000; 
 }
 
 function stopTuner() {
@@ -155,7 +159,7 @@ function stopTuner() {
 }
 
 function resetUI() {
-    targetAngle = 0; isLocked = false; stableStringIndex = -1;
+    targetAngle = 0; displayAngle = 0; isLocked = false; stableStringIndex = -1;
     noteNameEl.textContent = "--"; octaveEl.textContent = ""; noteNameEl.classList.remove('active');
     freqEl.textContent = "0.0 Hz"; centsEl.classList.remove('visible');
     document.body.className = "";
@@ -166,14 +170,17 @@ function processAudio() {
     if(!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
     
-    // RMS 계산 (볼륨)
     let rms = 0; for(let i=0; i<buf.length; i++) rms += buf[i]*buf[i]; rms = Math.sqrt(rms/buf.length);
 
-    if(rms < 0.02) { // 소리가 작아지면 초기화 준비
+    if(rms < 0.02) { 
         framesSinceLastPitch++;
         if(framesSinceLastPitch > 20) {
-            isLocked = false; 
-            if(framesSinceLastPitch > 50) { stableStringIndex = -1; document.body.className = ""; }
+            // 소리가 끊겨도 잠금 상태는 조금 더 유지 (안정감)
+            if(framesSinceLastPitch > 60) { 
+                isLocked = false; 
+                stableStringIndex = -1; 
+                document.body.className = ""; 
+            }
         }
         requestAnimationFrame(processAudio); return;
     }
@@ -209,7 +216,6 @@ function yin(buffer, sampleRate) {
     return -1;
 }
 
-// --- [강화] 줄 찾기 로직 (Hysteresis 적용) ---
 function findNote(frequency) {
     const data = instruments[currentInstrument];
     if(data.isChromatic) {
@@ -223,14 +229,10 @@ function findNote(frequency) {
     data.strings.forEach((str, idx) => {
         const diff = Math.abs(frequency - str.freq);
         const ratio = Math.max(frequency, str.freq) / Math.min(frequency, str.freq);
-        
-        // 옥타브 배음(2배수)도 허용하되, 원래 주파수 위주로 매칭
         const isOctave = Math.abs(frequency - str.freq*2) < (str.freq * 0.1);
         
-        if (ratio < 1.25 || isOctave) { // 약 4도 이내의 차이만 인정
-            let weight = 1.0;
-            if (idx === stableStringIndex) weight = 0.6; // 현재 잡고 있는 줄에 우선순위 부여 (Sticky)
-
+        if (ratio < 1.25 || isOctave) { 
+            let weight = (idx === stableStringIndex) ? 0.6 : 1.0;
             if (diff * weight < minDiff) {
                 minDiff = diff * weight;
                 bestMatch = { ...str, target: str.freq, index: idx };
@@ -244,32 +246,40 @@ function updateTuner(freq) {
     const match = findNote(freq);
     if(!match) return;
 
-    // 줄 고정 로직
     if(stableStringIndex === -1) {
         stableStringIndex = match.index;
     } else if(stableStringIndex !== match.index) {
-        // 다른 줄로 인식되려면 연속적으로 여러 번 감지되어야 함 (노트 점핑 방지)
         stringLockCounter++;
         if(stringLockCounter < 15) return; 
         stableStringIndex = match.index; stringLockCounter = 0;
+        isLocked = false; // 줄이 바뀌면 잠금 해제
     } else {
         stringLockCounter = 0;
     }
 
-    // 센트 계산
     let calcFreq = freq;
     if(Math.abs(freq - match.target*2) < (match.target * 0.2)) calcFreq = freq/2;
     
     let cents = 1200 * Math.log2(calcFreq / match.target);
-    if (Math.abs(cents) > 100) return; // 너무 먼 음은 무시
+    if (Math.abs(cents) > 100) return;
 
-    // 바늘 각도 계산 (중앙 근처에서 더 세밀하게)
-    targetAngle = cents * 1.5; 
-    if(Math.abs(cents) < 2.5) {
-        if(!isLocked) { playSuccessSound(); isLocked = true; }
-        targetAngle = 0; 
+    // --- [핵심] 바늘 고정 및 히스테리시스 로직 ---
+    if (isLocked) {
+        // 이미 고정된 상태라면, 오차가 UNLOCK_THRESHOLD를 넘어야만 잠금 해제
+        if (Math.abs(cents) > UNLOCK_THRESHOLD) {
+            isLocked = false;
+            targetAngle = cents * 1.5;
+        } else {
+            targetAngle = 0; // 고정 유지
+        }
     } else {
-        isLocked = false;
+        // 고정되지 않은 상태에서 LOCK_THRESHOLD 안으로 들어오면 잠금
+        if (Math.abs(cents) < LOCK_THRESHOLD) {
+            if (!isLocked) { playSuccessSound(); isLocked = true; }
+            targetAngle = 0;
+        } else {
+            targetAngle = cents * 1.5;
+        }
     }
 
     renderUI(match.note, match.octave, cents, match.target);
@@ -297,18 +307,22 @@ function playSuccessSound() {
     const t = audioContext.currentTime;
     const osc = audioContext.createOscillator();
     const g = audioContext.createGain();
-    osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, t); // C5
+    osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, t); 
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.2, t + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+    g.gain.linearRampToValueAtTime(0.15, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
     osc.connect(g).connect(audioContext.destination);
-    osc.start(t); osc.stop(t + 0.5);
+    osc.start(t); osc.stop(t + 0.4);
 }
 
 function updateVisualizer() {
-    // 바늘 움직임 댐핑 (Lerp) - 목표가 0(정확함)일 때는 더 천천히 움직여서 안정감 부여
-    const lerpFactor = isLocked ? 0.05 : 0.15;
+    // [수정] 잠금 상태일 때는 바늘이 더 묵직하게(천천히) 중앙으로 붙도록 설정
+    const lerpFactor = isLocked ? 0.03 : 0.12;
     displayAngle += (targetAngle - displayAngle) * lerpFactor;
+    
+    // 바늘이 아주 중앙에 가까워지면 정확히 0으로 고정하여 떨림 제거
+    if (isLocked && Math.abs(displayAngle) < 0.1) displayAngle = 0;
+
     if(needleGroup) needleGroup.setAttribute('transform', `rotate(${displayAngle}, 100, 100)`);
     requestAnimationFrame(updateVisualizer);
 }
