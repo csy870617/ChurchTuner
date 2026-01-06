@@ -1,7 +1,5 @@
-//
 // --- 1. 악기 데이터 ---
 const instruments = {
-    // [수정] 6번줄(82Hz)을 위해 HPF 60Hz -> 50Hz로 완화
     guitar: { name: "GUITAR", icon: "🎸", detail: "Standard", hpf: 50, strings: [ 
         { note: "E", octave: 2, freq: 82.41 }, { note: "A", octave: 2, freq: 110.00 }, 
         { note: "D", octave: 3, freq: 146.83 }, { note: "G", octave: 3, freq: 196.00 }, 
@@ -23,50 +21,38 @@ const instruments = {
         { note: "C", octave: 2, freq: 65.41 }, { note: "G", octave: 2, freq: 98.00 }, 
         { note: "D", octave: 3, freq: 146.83 }, { note: "A", octave: 3, freq: 220.00 } 
     ] },
-    flute: { name: "FLUTE", icon: "🎼", detail: "C Inst.", hpf: 200, strings: [ 
-        { note: "A", octave: 4, freq: 440.00 }, { note: "Bb", octave: 4, freq: 466.16 } 
-    ] },
-    clarinet: { name: "CLARINET", icon: "🎷", detail: "Bb Inst.", hpf: 100, strings: [ 
-        { note: "Bb", octave: 3, freq: 233.08 }, { note: "F", octave: 4, freq: 349.23 } 
-    ] },
-    sax_alto: { name: "A.SAX", icon: "🎷", detail: "Eb Inst.", hpf: 100, strings: [ 
-        { note: "Eb", octave: 3, freq: 311.13 }, { note: "Bb", octave: 3, freq: 466.16 } 
-    ] },
-    trumpet: { name: "TRUMPET", icon: "🎺", detail: "Bb Inst.", hpf: 150, strings: [ 
-        { note: "Bb", octave: 3, freq: 233.08 }, { note: "F", octave: 4, freq: 349.23 } 
-    ] },
     chromatic: { name: "CHROMATIC", icon: "🎹", detail: "All Notes", hpf: 30, isChromatic: true, strings: [] }
 };
 
 const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-class MovingAverage {
-    constructor(size) { this.size = size; this.buffer = []; }
-    add(val) { this.buffer.push(val); if(this.buffer.length > this.size) this.buffer.shift(); }
-    getAverage() { return this.buffer.length ? this.buffer.reduce((a,b)=>a+b,0)/this.buffer.length : 0; }
-    reset() { this.buffer = []; }
-}
 class MedianSmoother {
     constructor(size) { this.size = size; this.buffer = []; }
     add(val) { this.buffer.push(val); if(this.buffer.length > this.size) this.buffer.shift(); }
-    getValue() { if(!this.buffer.length) return 0; const s = [...this.buffer].sort((a,b)=>a-b); return s[Math.floor(s.length/2)]; }
+    getValue() { 
+        if(!this.buffer.length) return 0; 
+        const s = [...this.buffer].sort((a,b)=>a-b); 
+        return s[Math.floor(s.length/2)]; 
+    }
     reset() { this.buffer = []; }
 }
 
 let currentInstrument = 'guitar';
 let audioContext = null; let analyser = null; let mediaStream = null;
-let isRunning = false; let inputSource = null;
-let gainNode = null; let lowPassFilter = null; let highPassFilter = null; let compressor = null;
+let isRunning = false;
+let gainNode = null; let lowPassFilter = null; let highPassFilter = null;
 
 const BUF_SIZE = 4096; const buf = new Float32Array(BUF_SIZE);
-const freqSmoother = new MedianSmoother(7); 
-const centsSmoother = new MovingAverage(24); 
+const freqSmoother = new MedianSmoother(5); 
 
-let currentDisplayedNote = "--"; let currentDisplayedOctave = "";
-let lastSuccessTime = 0; 
-let displayAngle = 0; let targetAngle = 0;
-let isLocked = false; let consecutiveNoteCount = 0; let lastDetectedNoteFull = "";
-let stableStringIndex = -1; let pendingStringIndex = -1; let stringStabilityCounter = 0;
+// --- [강화] 안정화 변수 ---
+let lastDetectedNoteFull = "";
+let stableStringIndex = -1; // 현재 튜닝 중인 줄 번호 고정
+let stringLockCounter = 0;   // 줄 고정 강도
+let displayAngle = 0; 
+let targetAngle = 0;
+let isLocked = false;
+let framesSinceLastPitch = 0;
 
 const startBtn = document.getElementById('start-btn');
 const btnText = startBtn.querySelector('.btn-text');
@@ -86,25 +72,12 @@ const dynIcon = document.getElementById('dyn-icon');
 const dynName = document.getElementById('dyn-name');
 
 function init() {
-    resetToDefault();
     instPills.forEach(pill => pill.addEventListener('click', () => handleInstClick(pill)));
     startBtn.addEventListener('click', toggleTuner);
     closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
-    modal.addEventListener('click', (e) => { 
-        if(e.target === modal) modal.classList.add('hidden'); 
-    });
+    modal.addEventListener('click', (e) => { if(e.target === modal) modal.classList.add('hidden'); });
     generateModalList();
     requestAnimationFrame(updateVisualizer);
-}
-
-function resetToDefault() {
-    localStorage.removeItem('churchTuner_current');
-    localStorage.removeItem('churchTuner_dynamic');
-    dynIcon.textContent = "🎵";
-    dynName.textContent = "SELECT";
-    dynamicCard.dataset.type = "select";
-    const guitarPill = document.querySelector('.inst-pill[data-type="guitar"]');
-    activateInstrument('guitar', guitarPill);
 }
 
 function handleInstClick(pill) {
@@ -124,8 +97,8 @@ function activateInstrument(key, pill) {
         dynName.textContent = instruments[key].name;
         dynamicCard.dataset.type = key;
     }
-    if(isRunning) applyFilters();
     resetUI();
+    if(isRunning) applyFilters();
 }
 
 function generateModalList() {
@@ -142,18 +115,6 @@ function generateModalList() {
 }
 function openModal() { modal.classList.remove('hidden'); }
 
-function playSuccessSound() {
-    if (!audioContext) return;
-    const now = Date.now(); if (now - lastSuccessTime < 2000) return; lastSuccessTime = now;
-    const t = audioContext.currentTime;
-    const osc1 = audioContext.createOscillator(); const gain1 = audioContext.createGain(); osc1.frequency.value = 523.25; osc1.type = 'triangle'; 
-    const osc2 = audioContext.createOscillator(); const gain2 = audioContext.createGain(); osc2.frequency.value = 659.25; osc2.type = 'sine';
-    gain1.gain.setValueAtTime(0, t); gain1.gain.linearRampToValueAtTime(0.4, t + 0.1); gain1.gain.exponentialRampToValueAtTime(0.01, t + 2.0);
-    gain2.gain.setValueAtTime(0, t); gain2.gain.linearRampToValueAtTime(0.3, t + 0.1); gain2.gain.exponentialRampToValueAtTime(0.01, t + 2.0);
-    osc1.connect(gain1).connect(audioContext.destination); osc2.connect(gain2).connect(audioContext.destination);
-    osc1.start(t); osc1.stop(t + 2.0); osc2.start(t); osc2.stop(t + 2.0);
-}
-
 function toggleTuner() { isRunning ? stopTuner() : startTuner(); }
 
 async function startTuner() {
@@ -161,27 +122,28 @@ async function startTuner() {
         if(!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if(audioContext.state === 'suspended') await audioContext.resume();
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } });
-        inputSource = audioContext.createMediaStreamSource(mediaStream);
-        gainNode = audioContext.createGain(); gainNode.gain.value = 5.0;
-        compressor = audioContext.createDynamicsCompressor(); compressor.threshold.value = -50; compressor.ratio.value = 8;
+        const inputSource = audioContext.createMediaStreamSource(mediaStream);
+        
+        gainNode = audioContext.createGain(); gainNode.gain.value = 4.0;
         highPassFilter = audioContext.createBiquadFilter(); highPassFilter.type = "highpass";
         lowPassFilter = audioContext.createBiquadFilter(); lowPassFilter.type = "lowpass";
         analyser = audioContext.createAnalyser(); analyser.fftSize = BUF_SIZE;
-        inputSource.connect(gainNode).connect(compressor).connect(highPassFilter).connect(lowPassFilter).connect(analyser);
+        
+        inputSource.connect(gainNode).connect(highPassFilter).connect(lowPassFilter).connect(analyser);
         applyFilters();
+        
         isRunning = true;
         startBtn.classList.add('active'); btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active'); guideMsg.textContent = "PLAY A STRING";
         processAudio();
-    } catch(e) { console.error(e); alert("Microphone access required."); }
+    } catch(e) { alert("Microphone access required."); }
 }
 
 function applyFilters() {
     if(!highPassFilter) return;
     const data = instruments[currentInstrument];
-    // [수정] 6번줄(82Hz)을 위해 Guitar HPF 50Hz로 설정
-    highPassFilter.frequency.value = (currentInstrument === 'guitar') ? 50 : (data.hpf || 30);
-    lowPassFilter.frequency.value = 5000; 
+    highPassFilter.frequency.value = data.hpf || 40;
+    lowPassFilter.frequency.value = 2000; // 기타/바이올린 배음 영역 제한
 }
 
 function stopTuner() {
@@ -193,34 +155,40 @@ function stopTuner() {
 }
 
 function resetUI() {
-    displayAngle = 0; targetAngle = 0; isLocked = false;
+    targetAngle = 0; isLocked = false; stableStringIndex = -1;
     noteNameEl.textContent = "--"; octaveEl.textContent = ""; noteNameEl.classList.remove('active');
     freqEl.textContent = "0.0 Hz"; centsEl.classList.remove('visible');
     document.body.className = "";
     guideMsg.textContent = "READY"; guideMsg.style.color = "var(--text-muted)";
-    freqSmoother.reset(); centsSmoother.reset();
-    stableStringIndex = -1;
 }
 
 function processAudio() {
     if(!isRunning) return;
     analyser.getFloatTimeDomainData(buf);
+    
+    // RMS 계산 (볼륨)
     let rms = 0; for(let i=0; i<buf.length; i++) rms += buf[i]*buf[i]; rms = Math.sqrt(rms/buf.length);
 
-    if(rms < 0.05) {
-        if(isLocked) { if(Math.abs(targetAngle) > 1) targetAngle *= 0.9; }
-        else { if(Math.abs(targetAngle) > 1) targetAngle *= 0.8; else targetAngle = 0; }
-        if(rms < 0.01) { isLocked = false; stableStringIndex = -1; document.body.className = ""; centsEl.classList.remove('visible');}
-        consecutiveNoteCount = 0; requestAnimationFrame(processAudio); return;
+    if(rms < 0.02) { // 소리가 작아지면 초기화 준비
+        framesSinceLastPitch++;
+        if(framesSinceLastPitch > 20) {
+            isLocked = false; 
+            if(framesSinceLastPitch > 50) { stableStringIndex = -1; document.body.className = ""; }
+        }
+        requestAnimationFrame(processAudio); return;
     }
 
     const pitch = yin(buf, audioContext.sampleRate);
-    if(pitch !== -1) { freqSmoother.add(pitch); updateTuner(freqSmoother.getValue()); }
+    if(pitch !== -1 && pitch < 2000) {
+        framesSinceLastPitch = 0;
+        freqSmoother.add(pitch);
+        updateTuner(freqSmoother.getValue());
+    }
     requestAnimationFrame(processAudio);
 }
 
 function yin(buffer, sampleRate) {
-    const threshold = 0.20; let tauEstimate = -1; 
+    const threshold = 0.15; let tauEstimate = -1; 
     const yinBuffer = new Float32Array(buffer.length/2); yinBuffer[0] = 1; let runningSum = 0;
     for (let tau = 1; tau < yinBuffer.length; tau++) {
         let deltaSum = 0; for (let i = 0; i < yinBuffer.length; i++) deltaSum += (buffer[i] - buffer[i + tau]) ** 2;
@@ -233,77 +201,85 @@ function yin(buffer, sampleRate) {
             tauEstimate = tau; break;
         }
     }
-    if (tauEstimate !== -1 && yinBuffer[tauEstimate] < threshold) {
+    if (tauEstimate !== -1) {
         const s0 = yinBuffer[tauEstimate], s1 = yinBuffer[tauEstimate-1]||s0, s2 = yinBuffer[tauEstimate+1]||s0;
-        let adj = (s1 - s2) / (2 * (s1 - 2 * s0 + s2)); if(isNaN(adj)) adj = 0;
-        return sampleRate / (tauEstimate + adj);
+        let adj = (s1 - s2) / (2 * (s1 - 2 * s0 + s2));
+        return sampleRate / (tauEstimate + (isNaN(adj)?0:adj));
     }
     return -1;
 }
 
+// --- [강화] 줄 찾기 로직 (Hysteresis 적용) ---
 function findNote(frequency) {
     const data = instruments[currentInstrument];
     if(data.isChromatic) {
         const n = Math.round(12*Math.log2(frequency/440)+69);
         return { note: noteStrings[n%12], octave: Math.floor(n/12)-1, target: 440*Math.pow(2,(n-69)/12), index:-1 };
     }
-    let minDiff=Infinity; let match=null; let matchIdx=-1;
-    
+
+    let bestMatch = null;
+    let minDiff = Infinity;
+
     data.strings.forEach((str, idx) => {
-        let diff1 = Math.abs(frequency - str.freq);
-        let diff2 = Math.abs(frequency - str.freq*2);
+        const diff = Math.abs(frequency - str.freq);
+        const ratio = Math.max(frequency, str.freq) / Math.min(frequency, str.freq);
         
-        let bestDiff = Infinity;
-        // [수정] 6번줄 인식을 위해 윈도우를 ±15% -> ±20%로 확장 (82Hz * 0.8 = 65Hz / 82Hz * 1.2 = 98Hz)
-        // 5번줄(110Hz)과는 겹치지 않음
-        if(frequency >= str.freq*0.80 && frequency <= str.freq*1.20) bestDiff = diff1;
-        else if(frequency >= (str.freq*2)*0.80 && frequency <= (str.freq*2)*1.20) bestDiff = diff2;
+        // 옥타브 배음(2배수)도 허용하되, 원래 주파수 위주로 매칭
+        const isOctave = Math.abs(frequency - str.freq*2) < (str.freq * 0.1);
         
-        if(bestDiff !== Infinity) {
-             let weight = (stableStringIndex === idx) ? 0.5 : 1.0;
-             if(currentInstrument === 'guitar' && idx >= 4) weight *= 0.9;
-             if(bestDiff*weight < minDiff) { minDiff=bestDiff*weight; match={...str, target:str.freq}; matchIdx=idx; }
+        if (ratio < 1.25 || isOctave) { // 약 4도 이내의 차이만 인정
+            let weight = 1.0;
+            if (idx === stableStringIndex) weight = 0.6; // 현재 잡고 있는 줄에 우선순위 부여 (Sticky)
+
+            if (diff * weight < minDiff) {
+                minDiff = diff * weight;
+                bestMatch = { ...str, target: str.freq, index: idx };
+            }
         }
     });
-    return match ? {...match, index:matchIdx} : null;
+    return bestMatch;
 }
 
 function updateTuner(freq) {
-    const match = findNote(freq); if(!match) return;
+    const match = findNote(freq);
+    if(!match) return;
+
+    // 줄 고정 로직
+    if(stableStringIndex === -1) {
+        stableStringIndex = match.index;
+    } else if(stableStringIndex !== match.index) {
+        // 다른 줄로 인식되려면 연속적으로 여러 번 감지되어야 함 (노트 점핑 방지)
+        stringLockCounter++;
+        if(stringLockCounter < 15) return; 
+        stableStringIndex = match.index; stringLockCounter = 0;
+    } else {
+        stringLockCounter = 0;
+    }
+
+    // 센트 계산
+    let calcFreq = freq;
+    if(Math.abs(freq - match.target*2) < (match.target * 0.2)) calcFreq = freq/2;
     
-    if(!instruments[currentInstrument].isChromatic) {
-        if(stableStringIndex !== -1 && stableStringIndex !== match.index) {
-            if(pendingStringIndex !== match.index) { pendingStringIndex = match.index; stringStabilityCounter = 0; }
-            else if(++stringStabilityCounter < 25) return;
-        }
-        stableStringIndex = match.index; pendingStringIndex = -1; stringStabilityCounter = 0;
-    }
-
-    let calcFreq = freq; if(Math.abs(freq - match.target*2) < 20) calcFreq = freq/2;
     let cents = 1200 * Math.log2(calcFreq / match.target);
-    while(cents > 600) cents -= 1200; while(cents < -600) cents += 1200;
+    if (Math.abs(cents) > 100) return; // 너무 먼 음은 무시
 
-    const key = match.note + match.octave;
-    if(key !== lastDetectedNoteFull) { lastDetectedNoteFull = key; consecutiveNoteCount = 0; isLocked = false; centsSmoother.reset(); return; }
-    if(++consecutiveNoteCount < 2) return;
-
-    currentDisplayedNote = match.note; currentDisplayedOctave = match.octave;
-    centsSmoother.add(cents); let smoothed = centsSmoother.getAverage();
-
-    if(isLocked) { if(Math.abs(smoothed) > 20.0) isLocked = false; else targetAngle = 0; } 
-    else {
-        targetAngle = Math.max(-90, Math.min(90, smoothed * 1.8));
-        if(Math.abs(smoothed) < 3.0) { isLocked = true; targetAngle = 0; playSuccessSound(); }
+    // 바늘 각도 계산 (중앙 근처에서 더 세밀하게)
+    targetAngle = cents * 1.5; 
+    if(Math.abs(cents) < 2.5) {
+        if(!isLocked) { playSuccessSound(); isLocked = true; }
+        targetAngle = 0; 
+    } else {
+        isLocked = false;
     }
-    renderUI(match.note, match.octave, smoothed, match.target);
+
+    renderUI(match.note, match.octave, cents, match.target);
 }
 
 function renderUI(note, oct, cents, freq) {
     noteNameEl.textContent = note; octaveEl.textContent = oct; noteNameEl.classList.add('active');
     freqEl.textContent = freq.toFixed(1) + " Hz";
     
-    let dispCents = Math.round(cents);
-    centsEl.textContent = isLocked ? "OK" : (dispCents>0?"+":"")+dispCents;
+    centsEl.textContent = isLocked ? "OK" : (cents>0?"+":"") + Math.round(cents);
     centsEl.classList.add('visible');
 
     let statusClass = 'perfect'; let msg = "PERFECT";
@@ -316,8 +292,23 @@ function renderUI(note, oct, cents, freq) {
     guideMsg.textContent = msg; guideMsg.style.color = "var(--current-neon)";
 }
 
+function playSuccessSound() {
+    if (!audioContext) return;
+    const t = audioContext.currentTime;
+    const osc = audioContext.createOscillator();
+    const g = audioContext.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, t); // C5
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.2, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+    osc.connect(g).connect(audioContext.destination);
+    osc.start(t); osc.stop(t + 0.5);
+}
+
 function updateVisualizer() {
-    displayAngle += ((isLocked ? 0 : targetAngle) - displayAngle) * 0.08; 
+    // 바늘 움직임 댐핑 (Lerp) - 목표가 0(정확함)일 때는 더 천천히 움직여서 안정감 부여
+    const lerpFactor = isLocked ? 0.05 : 0.15;
+    displayAngle += (targetAngle - displayAngle) * lerpFactor;
     if(needleGroup) needleGroup.setAttribute('transform', `rotate(${displayAngle}, 100, 100)`);
     requestAnimationFrame(updateVisualizer);
 }

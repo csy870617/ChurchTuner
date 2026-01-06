@@ -165,3 +165,52 @@ footer { margin-bottom: 20px; }
 body.perfect { --current-neon: var(--neon-green); }
 body.low { --current-neon: var(--neon-blue); }
 body.high { --current-neon: var(--neon-pink); }
+
+#note-name {
+    font-size: 8rem; font-weight: 900; line-height: 1;
+    color: #1a1a1a; /* 기본 상태는 아주 어둡게 */
+    -webkit-text-stroke: 1px var(--current-neon);
+    text-shadow: 0 0 20px rgba(255,255,255,0.05);
+    transition: all 0.3s ease;
+}
+
+/* 튜닝이 정확할 때 글자가 밝게 빛남 */
+body.perfect #note-name {
+    color: var(--text-primary);
+    -webkit-text-stroke: 0;
+    text-shadow: 0 0 40px var(--neon-green), 0 0 80px rgba(0,255,157,0.3);
+}
+
+#needle-group {
+    /* 부드러운 하드웨어 가속 */
+    will-change: transform;
+}
+
+.needle {
+    stroke: var(--current-neon);
+    filter: drop-shadow(0 0 5px var(--current-neon));
+    transition: stroke 0.3s;
+}
+
+/* OK 문구 강조 */
+#cents.visible {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.1);
+}
+
+body.perfect #cents {
+    color: var(--neon-green);
+    font-size: 1.8rem;
+}
+
+/* 애니메이션 효과 추가 */
+@keyframes pulse-green {
+    0% { box-shadow: 0 0 20px var(--neon-green); }
+    50% { box-shadow: 0 0 40px var(--neon-green); }
+    100% { box-shadow: 0 0 20px var(--neon-green); }
+}
+
+body.perfect .brand-bar {
+    border-color: var(--neon-green);
+    animation: pulse-green 2s infinite;
+}
