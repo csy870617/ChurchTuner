@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Church Tuner Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.4">
+    <link rel="stylesheet" href="style.css?v=3.0">
 </head>
 <body>
     <div class="app-container">
@@ -29,13 +29,13 @@
                 <div class="gauge-container">
                     <svg class="gauge-svg" viewBox="0 0 200 100">
                         <path class="gauge-track" d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke-width="4" stroke-linecap="round"/>
-                        <line class="center-marker" x1="100" y1="10" x2="100" y2="30" stroke-width="3" stroke-linecap="round"/>
+                        <line class="center-marker" x1="100" y1="10" x2="100" y2="28" stroke-width="3" stroke-linecap="round"/>
                         <g id="needle-group" transform="rotate(0, 100, 100)">
-                            <line class="needle" x1="100" y1="100" x2="100" y2="20" stroke-width="4" stroke-linecap="round"/>
-                             <circle class="needle-base" cx="100" cy="100" r="8" />
+                            <line class="needle" x1="100" y1="100" x2="100" y2="18" stroke-width="4" stroke-linecap="round"/>
+                            <circle class="needle-base" cx="100" cy="100" r="8" />
                         </g>
                     </svg>
-                     <div class="cents-display" id="cents">0</div>
+                    <div class="cents-display" id="cents">0¢</div>
                 </div>
             </div>
 
@@ -57,7 +57,7 @@
                     <div class="inst-pill active" data-type="guitar">🎸 GUITAR</div>
                     <div class="inst-pill" data-type="bass">🎸 BASS</div>
                     <div class="inst-pill" id="dynamic-inst-card" data-type="select">
-                        <span id="dyn-icon">🎵</span> <span id="dyn-name">SELECT</span>
+                        <span id="dyn-icon">🎵</span> <span id="dyn-name">MORE</span>
                     </div>
                 </div>
             </div>
@@ -74,6 +74,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=2.4"></script>
+    <script src="script.js?v=3.0"></script>
 </body>
 </html>
