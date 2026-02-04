@@ -143,7 +143,9 @@ const LOCK_THRESHOLD = 2.5;      // 이 범위 안에서 일정 시간 유지되
 const UNLOCK_THRESHOLD = 8.0;    // 잠긴 후, 이 범위를 벗어나야 잠금 해제
 const LOCK_HOLD_FRAMES = 8;      // 잠금까지 필요한 프레임 수
 const NEEDLE_DEADZONE = 0.8;     // 바늘 미세 떨림 무시 범위
-const STRING_CHANGE_THRESHOLD = 20; // 줄 변경에 필요한 연속 감지 수
+const STRING_CHANGE_THRESHOLD = 8; // 줄 변경에 필요한 연속 감지 수 (낮춤)
+const SILENCE_RESET_FRAMES = 15;   // 이 프레임 동안 소리 없으면 줄 리셋
+const ATTACK_THRESHOLD = 0.08;     // 새로운 줄 연주 감지용 볼륨 임계값
 
 // DOM 요소
 const startBtn = document.getElementById('start-btn');
@@ -323,18 +325,38 @@ function processAudio() {
         silenceCounter++;
         framesSinceLastPitch++;
         
-        // 소리가 끊긴 후 일정 시간이 지나면 서서히 리셋
-        if (silenceCounter > 30) {
-            if (silenceCounter > 60) {
-                // 완전히 리셋
-                isLocked = false;
-                stableStringIndex = -1;
-                document.body.className = "";
-                targetAngle = 0;
-            }
+        // 소리가 끊기면 빠르게 줄 잠금 해제 (다음 줄 준비)
+        if (silenceCounter > SILENCE_RESET_FRAMES) {
+            // 줄 정보 리셋 - 다음 줄 연주 준비
+            stableStringIndex = -1;
+            stringLockCounter = 0;
+            consecutiveStringHits = 0;
+            isLocked = false;
+            lockHoldCounter = 0;
+            freqSmoother.reset();
+            centsSmoother.reset();
         }
+        
+        if (silenceCounter > 40) {
+            // UI도 서서히 리셋
+            document.body.className = "";
+            targetAngle = 0;
+        }
+        
         requestAnimationFrame(processAudio);
         return;
+    }
+
+    // 새로운 강한 신호 감지 (새 줄 연주)
+    if (silenceCounter > 5 && rms > ATTACK_THRESHOLD) {
+        // 소리가 끊겼다가 강하게 들어오면 = 새 줄 연주
+        stableStringIndex = -1;
+        stringLockCounter = 0;
+        consecutiveStringHits = 0;
+        isLocked = false;
+        lockHoldCounter = 0;
+        freqSmoother.reset();
+        centsSmoother.reset();
     }
 
     silenceCounter = 0;
@@ -444,12 +466,12 @@ function findNote(frequency) {
 
             // 50센트 (반음의 절반) 이내만 고려
             if (cents < 50) {
-                // 점수 계산: 현재 고정된 줄에 가산점
+                // 점수 계산: 현재 고정된 줄에 약간의 가산점
                 let score = cents;
                 
-                // 이미 선택된 줄이 있으면 다른 줄로 바뀌기 어렵게
+                // 이미 선택된 줄이 있으면 약간의 페널티 (너무 높으면 전환 안됨)
                 if (stableStringIndex !== -1 && stableStringIndex !== idx) {
-                    score += 15; // 페널티
+                    score += 8; // 페널티 낮춤 (기존 15)
                 }
                 
                 // 옥타브 위 감지는 약간의 페널티
@@ -480,26 +502,28 @@ function updateTuner(freq) {
 
     // 줄 안정화 로직
     if (stableStringIndex === -1) {
+        // 첫 감지
         consecutiveStringHits = 1;
         stableStringIndex = match.index;
+        centsSmoother.reset();
     } else if (stableStringIndex !== match.index) {
         stringLockCounter++;
-        consecutiveStringHits = 0;
         
-        // 다른 줄이 연속으로 많이 감지되어야만 변경
-        if (stringLockCounter < STRING_CHANGE_THRESHOLD) {
-            // 기존 줄 유지, 현재 감지는 무시
-            return;
+        // 다른 줄이 연속으로 감지되면 변경
+        if (stringLockCounter >= STRING_CHANGE_THRESHOLD) {
+            // 줄 변경
+            stableStringIndex = match.index;
+            stringLockCounter = 0;
+            consecutiveStringHits = 1;
+            isLocked = false;
+            lockHoldCounter = 0;
+            centsSmoother.reset();
+        } else {
+            // 아직 변경 안됨 - 하지만 계속 업데이트는 함
+            consecutiveStringHits = 0;
         }
-        
-        // 줄 변경
-        stableStringIndex = match.index;
-        stringLockCounter = 0;
-        isLocked = false;
-        lockHoldCounter = 0;
-        centsSmoother.reset();
     } else {
-        stringLockCounter = Math.max(0, stringLockCounter - 2);
+        stringLockCounter = Math.max(0, stringLockCounter - 1);
         consecutiveStringHits++;
     }
 
