@@ -319,14 +319,14 @@ function processAudio() {
     rms = Math.sqrt(rms / buf.length);
 
     // 동적 임계값: 현재 신호 강도에 따라 조정
-    const threshold = 0.015;
+    const threshold = 0.012;
     
     if (rms < threshold) {
         silenceCounter++;
         framesSinceLastPitch++;
         
-        // 소리가 끊기면 빠르게 줄 잠금 해제 (다음 줄 준비)
-        if (silenceCounter > SILENCE_RESET_FRAMES) {
+        // 소리가 끊기면 빠르게 줄 정보 리셋 (다음 줄 준비)
+        if (silenceCounter > 10) {
             // 줄 정보 리셋 - 다음 줄 연주 준비
             stableStringIndex = -1;
             stringLockCounter = 0;
@@ -337,7 +337,7 @@ function processAudio() {
             centsSmoother.reset();
         }
         
-        if (silenceCounter > 40) {
+        if (silenceCounter > 30) {
             // UI도 서서히 리셋
             document.body.className = "";
             targetAngle = 0;
@@ -347,9 +347,9 @@ function processAudio() {
         return;
     }
 
-    // 새로운 강한 신호 감지 (새 줄 연주)
-    if (silenceCounter > 5 && rms > ATTACK_THRESHOLD) {
-        // 소리가 끊겼다가 강하게 들어오면 = 새 줄 연주
+    // 새로운 강한 신호 감지 (새 줄 연주) - 조건 완화
+    if (silenceCounter > 3 && rms > 0.04) {
+        // 소리가 끊겼다가 다시 들어오면 = 새 줄 연주
         stableStringIndex = -1;
         stringLockCounter = 0;
         consecutiveStringHits = 0;
@@ -466,13 +466,7 @@ function findNote(frequency) {
 
             // 50센트 (반음의 절반) 이내만 고려
             if (cents < 50) {
-                // 점수 계산: 현재 고정된 줄에 약간의 가산점
                 let score = cents;
-                
-                // 이미 선택된 줄이 있으면 약간의 페널티 (너무 높으면 전환 안됨)
-                if (stableStringIndex !== -1 && stableStringIndex !== idx) {
-                    score += 8; // 페널티 낮춤 (기존 15)
-                }
                 
                 // 옥타브 위 감지는 약간의 페널티
                 if (candidate.isOctave) {
@@ -500,31 +494,17 @@ function updateTuner(freq) {
     const match = findNote(freq);
     if (!match) return;
 
-    // 줄 안정화 로직
-    if (stableStringIndex === -1) {
+    // 줄 변경 감지
+    if (stableStringIndex !== -1 && stableStringIndex !== match.index) {
+        // 다른 줄 감지됨 - 바로 전환
+        stableStringIndex = match.index;
+        isLocked = false;
+        lockHoldCounter = 0;
+        centsSmoother.reset();
+    } else if (stableStringIndex === -1) {
         // 첫 감지
-        consecutiveStringHits = 1;
         stableStringIndex = match.index;
         centsSmoother.reset();
-    } else if (stableStringIndex !== match.index) {
-        stringLockCounter++;
-        
-        // 다른 줄이 연속으로 감지되면 변경
-        if (stringLockCounter >= STRING_CHANGE_THRESHOLD) {
-            // 줄 변경
-            stableStringIndex = match.index;
-            stringLockCounter = 0;
-            consecutiveStringHits = 1;
-            isLocked = false;
-            lockHoldCounter = 0;
-            centsSmoother.reset();
-        } else {
-            // 아직 변경 안됨 - 하지만 계속 업데이트는 함
-            consecutiveStringHits = 0;
-        }
-    } else {
-        stringLockCounter = Math.max(0, stringLockCounter - 1);
-        consecutiveStringHits++;
     }
 
     // 옥타브 보정
