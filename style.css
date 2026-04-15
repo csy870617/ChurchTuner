@@ -199,19 +199,20 @@ main {
 }
 
 .cents-display {
-    position: absolute; 
-    bottom: 0px; 
-    left: 50%; 
+    position: absolute;
+    bottom: 0px;
+    left: 50%;
     transform: translateX(-50%);
-    font-family: 'Inter', monospace; 
-    font-weight: 700; 
+    font-family: 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
     font-size: 1.4rem;
-    color: var(--current-neon); 
+    color: var(--current-neon);
     text-shadow: 0 0 10px var(--current-neon);
-    opacity: 0; 
+    opacity: 0;
     transition: all 0.3s ease;
-    background: rgba(0,0,0,0.4); 
-    padding: 4px 14px; 
+    background: rgba(0,0,0,0.4);
+    padding: 4px 14px;
     border-radius: 12px;
     min-width: 80px;
     text-align: center;
@@ -222,11 +223,12 @@ main {
 }
 
 .frequency-info {
-    font-family: 'Inter', monospace; 
-    font-size: 1rem; 
+    font-family: 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-size: 1rem;
     color: var(--text-muted);
-    background: rgba(255,255,255,0.05); 
-    padding: 10px 20px; 
+    background: rgba(255,255,255,0.05);
+    padding: 10px 20px;
     border-radius: 20px;
     display: flex;
     align-items: center;
@@ -298,18 +300,26 @@ footer {
 }
 
 .inst-pill {
-    padding: 10px 18px; 
+    padding: 10px 18px;
     border-radius: 20px;
     background: rgba(255,255,255,0.05);
-    font-size: 0.8rem; 
-    font-weight: 700; 
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
     color: var(--text-muted);
-    cursor: pointer; 
-    transition: all 0.3s ease; 
+    cursor: pointer;
+    transition: all 0.3s ease;
     border: 1px solid transparent;
-    display: flex; 
-    align-items: center; 
+    display: flex;
+    align-items: center;
     gap: 5px;
+}
+
+.inst-pill:focus-visible,
+#start-btn:focus-visible,
+#close-modal:focus-visible {
+    outline: 2px solid var(--neon-green);
+    outline-offset: 2px;
 }
 
 .inst-pill:active {
@@ -384,17 +394,26 @@ footer {
     color: var(--text-primary);
 }
 
-.inst-option { 
-    display: flex; 
-    align-items: center; 
-    gap: 15px; 
-    padding: 15px; 
-    margin-bottom: 10px; 
-    background: rgba(255,255,255,0.03); 
-    border-radius: 15px; 
+.inst-option {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    margin-bottom: 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 15px;
     cursor: pointer;
     border: 1px solid transparent;
     transition: all 0.2s ease;
+    width: 100%;
+    font-family: inherit;
+    color: var(--text-primary);
+    text-align: left;
+}
+
+.inst-option:focus-visible {
+    outline: 2px solid var(--neon-green);
+    outline-offset: 2px;
 }
 
 .inst-option:hover {

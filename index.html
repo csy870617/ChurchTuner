@@ -2,10 +2,10 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Church Tuner Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=3.0">
+    <link rel="stylesheet" href="style.css?v=4.0">
 </head>
 <body>
     <div class="app-container">
@@ -41,6 +41,7 @@
 
             <div class="frequency-info">
                 <span id="frequency">0.0 Hz</span>
+                <span id="target-note"></span>
             </div>
         </main>
 
@@ -53,27 +54,27 @@
                     </div>
                 </button>
                 
-                <div class="instrument-selector">
-                    <div class="inst-pill active" data-type="guitar">🎸 GUITAR</div>
-                    <div class="inst-pill" data-type="bass">🎸 BASS</div>
-                    <div class="inst-pill" id="dynamic-inst-card" data-type="select">
+                <div class="instrument-selector" role="group" aria-label="Instrument selector">
+                    <button type="button" class="inst-pill active" data-type="guitar" aria-pressed="true">🎸 GUITAR</button>
+                    <button type="button" class="inst-pill" data-type="bass" aria-pressed="false">🪕 BASS</button>
+                    <button type="button" class="inst-pill" id="dynamic-inst-card" data-type="select" aria-pressed="false" aria-haspopup="dialog">
                         <span id="dyn-icon">🎵</span> <span id="dyn-name">MORE</span>
-                    </div>
+                    </button>
                 </div>
             </div>
         </footer>
     </div>
 
-    <div id="inst-modal" class="modal hidden">
+    <div id="inst-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
         <div class="modal-glass">
             <div class="modal-header">
-                <h3>SELECT INSTRUMENT</h3>
-                <button id="close-modal">✕</button>
+                <h3 id="modal-title">SELECT INSTRUMENT</h3>
+                <button id="close-modal" type="button" aria-label="Close instrument selector">✕</button>
             </div>
             <div id="modal-list" class="modal-list"></div>
         </div>
     </div>
 
-    <script src="script.js?v=3.0"></script>
+    <script src="script.js?v=4.0"></script>
 </body>
 </html>
