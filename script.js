@@ -16,8 +16,8 @@ const instruments = {
             { note: "E", octave: 4, freq: 329.63, name: "1st" }
         ] 
     },
-    bass: { 
-        name: "BASS", icon: "🎸", detail: "Standard", 
+    bass: {
+        name: "BASS", icon: "🪕", detail: "Standard",
         minFreq: 35, maxFreq: 150,
         strings: [ 
             { note: "E", octave: 1, freq: 41.20, name: "4th" },
@@ -73,11 +73,19 @@ let currentInstrument = 'guitar';
 let audioContext = null;
 let analyser = null;
 let mediaStream = null;
+let sourceNode = null;
+let highpassNode = null;
+let lowpassNode = null;
 let isRunning = false;
 
 // 버퍼 설정 - 저음 감지를 위해 큰 버퍼 사용
 const BUFFER_SIZE = 8192;
 let audioBuffer = new Float32Array(BUFFER_SIZE);
+
+// YIN 알고리즘용 재사용 버퍼 (가장 낮은 주파수 기준 크기)
+// 35Hz 기준: 48000/35 ≈ 1372, 안전 마진 포함
+const YIN_BUFFER_SIZE = 2048;
+const yinBuffer = new Float32Array(YIN_BUFFER_SIZE);
 
 // ===============================================
 // 피치 감지 상태
@@ -102,6 +110,8 @@ const LOCK_CENTS = 3;
 const UNLOCK_CENTS = 10;
 const LOCK_FRAMES_NEEDED = 5;
 const SILENCE_THRESHOLD = 0.01;
+const SILENCE_RESET_FRAMES = 15;  // 이 프레임 이후 피치 히스토리 리셋
+const SILENCE_IDLE_FRAMES = 40;   // 이 프레임 이후 UI 초기 상태로 복귀
 
 // ===============================================
 // DOM 요소
@@ -111,6 +121,7 @@ const btnText = startBtn.querySelector('.btn-text');
 const noteNameEl = document.getElementById('note-name');
 const octaveEl = document.getElementById('octave');
 const freqEl = document.getElementById('frequency');
+const targetNoteEl = document.getElementById('target-note');
 const centsEl = document.getElementById('cents');
 const needleGroup = document.getElementById('needle-group');
 const statusDot = document.getElementById('status-dot');
@@ -129,10 +140,12 @@ const dynName = document.getElementById('dyn-name');
 function init() {
     instPills.forEach(pill => pill.addEventListener('click', () => handleInstClick(pill)));
     startBtn.addEventListener('click', toggleTuner);
-    closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+    closeModalBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+    });
     generateModalList();
-    requestAnimationFrame(animationLoop);
 }
 
 function handleInstClick(pill) {
@@ -145,8 +158,12 @@ function handleInstClick(pill) {
 }
 
 function activateInstrument(key, pill) {
-    instPills.forEach(p => p.classList.remove('active'));
+    instPills.forEach(p => {
+        p.classList.remove('active');
+        p.setAttribute('aria-pressed', 'false');
+    });
     pill.classList.add('active');
+    pill.setAttribute('aria-pressed', 'true');
     currentInstrument = key;
     if (key !== 'guitar' && key !== 'bass') {
         dynIcon.textContent = instruments[key].icon;
@@ -161,19 +178,29 @@ function generateModalList() {
     Object.keys(instruments).forEach(key => {
         if (key === 'guitar' || key === 'bass') return;
         const inst = instruments[key];
-        const div = document.createElement('div');
-        div.className = 'inst-option';
-        div.innerHTML = `<div class="opt-icon">${inst.icon}</div><div class="opt-info"><span class="opt-name">${inst.name}</span><span class="opt-detail">${inst.detail}</span></div>`;
-        div.addEventListener('click', () => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'inst-option';
+        btn.innerHTML = `<div class="opt-icon" aria-hidden="true">${inst.icon}</div><div class="opt-info"><span class="opt-name">${inst.name}</span><span class="opt-detail">${inst.detail}</span></div>`;
+        btn.addEventListener('click', () => {
             activateInstrument(key, dynamicCard);
-            modal.classList.add('hidden');
+            closeModal();
         });
-        modalList.appendChild(div);
+        modalList.appendChild(btn);
     });
 }
 
 function openModal() {
     modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    const firstBtn = modalList.querySelector('button');
+    if (firstBtn) firstBtn.focus();
+}
+
+function closeModal() {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    dynamicCard.focus();
 }
 
 // ===============================================
@@ -204,26 +231,27 @@ async function startTuner() {
             }
         });
 
-        const source = audioContext.createMediaStreamSource(mediaStream);
-        
-        // 간단한 필터 체인
-        const highpass = audioContext.createBiquadFilter();
-        highpass.type = 'highpass';
-        highpass.frequency.value = 30; // 매우 낮은 주파수만 차단
-        highpass.Q.value = 0.5;
+        sourceNode = audioContext.createMediaStreamSource(mediaStream);
 
-        const lowpass = audioContext.createBiquadFilter();
-        lowpass.type = 'lowpass';
-        lowpass.frequency.value = 1200;
-        lowpass.Q.value = 0.5;
+        // 간단한 필터 체인
+        highpassNode = audioContext.createBiquadFilter();
+        highpassNode.type = 'highpass';
+        highpassNode.frequency.value = 30; // 매우 낮은 주파수(전원 hum 등)만 차단
+        highpassNode.Q.value = 0.5;
+
+        // 기본 주파수 추출을 위해 고차 배음 제거 (바이올린 E5=659Hz의 2배음 이상 컷)
+        lowpassNode = audioContext.createBiquadFilter();
+        lowpassNode.type = 'lowpass';
+        lowpassNode.frequency.value = 1200;
+        lowpassNode.Q.value = 0.5;
 
         analyser = audioContext.createAnalyser();
         analyser.fftSize = BUFFER_SIZE * 2;
         analyser.smoothingTimeConstant = 0;
 
-        source.connect(highpass);
-        highpass.connect(lowpass);
-        lowpass.connect(analyser);
+        sourceNode.connect(highpassNode);
+        highpassNode.connect(lowpassNode);
+        lowpassNode.connect(analyser);
 
         isRunning = true;
         startBtn.classList.add('active');
@@ -232,11 +260,17 @@ async function startTuner() {
         guideMsg.textContent = "PLAY A STRING";
 
         processAudio();
-        
+        requestAnimationFrame(animationLoop);
+
     } catch (e) {
         console.error('Microphone error:', e);
-        alert("마이크 접근 권한이 필요합니다.");
+        showError("마이크 접근 권한이 필요합니다.");
     }
+}
+
+function showError(message) {
+    guideMsg.textContent = message;
+    guideMsg.style.color = "var(--neon-pink)";
 }
 
 function stopTuner() {
@@ -244,8 +278,20 @@ function stopTuner() {
     startBtn.classList.remove('active');
     btnText.textContent = "ACTIVATE";
     statusDot.classList.remove('active');
+
+    // 오디오 그래프 정리
+    try { sourceNode && sourceNode.disconnect(); } catch (e) {}
+    try { highpassNode && highpassNode.disconnect(); } catch (e) {}
+    try { lowpassNode && lowpassNode.disconnect(); } catch (e) {}
+    try { analyser && analyser.disconnect(); } catch (e) {}
+    sourceNode = null;
+    highpassNode = null;
+    lowpassNode = null;
+    analyser = null;
+
     if (mediaStream) {
         mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
     }
     resetState();
 }
@@ -265,6 +311,7 @@ function resetState() {
     octaveEl.textContent = "";
     noteNameEl.classList.remove('active');
     freqEl.textContent = "0.0 Hz";
+    if (targetNoteEl) targetNoteEl.textContent = "";
     centsEl.classList.remove('visible');
     document.body.className = "";
     guideMsg.textContent = "READY";
@@ -287,14 +334,16 @@ function processAudio() {
     rms = Math.sqrt(rms / audioBuffer.length);
 
     if (rms < SILENCE_THRESHOLD) {
-        silenceFrames++;
-        if (silenceFrames > 15) {
-            // 소리 없음 - 리셋 준비
+        // 무한 증가 방지를 위해 상한 설정
+        if (silenceFrames <= SILENCE_IDLE_FRAMES) silenceFrames++;
+
+        if (silenceFrames === SILENCE_RESET_FRAMES + 1) {
+            // 임계값 도달 시 한 번만 리셋
             pitchHistory.length = 0;
             isLocked = false;
             lockCounter = 0;
         }
-        if (silenceFrames > 40) {
+        if (silenceFrames === SILENCE_IDLE_FRAMES + 1) {
             document.body.className = "";
             targetAngle = 0;
         }
@@ -335,9 +384,10 @@ function detectPitch(buffer, sampleRate, minFreq, maxFreq) {
     const minTau = Math.floor(sampleRate / maxFreq);
     const maxTau = Math.floor(sampleRate / minFreq);
     
-    // 차이 함수 계산 (YIN 스타일)
-    const yinBuffer = new Float32Array(maxTau + 1);
-    
+    // 재사용 버퍼 범위 체크 및 초기화
+    if (maxTau + 1 > YIN_BUFFER_SIZE) return -1;
+    for (let i = 0; i <= maxTau; i++) yinBuffer[i] = 0;
+
     // Step 1: 차이 함수
     for (let tau = 1; tau <= maxTau; tau++) {
         let sum = 0;
@@ -430,25 +480,22 @@ function updateTuning(pitch) {
     }
     
     if (!note) return;
-    
-    // 옥타브 보정 (배음 감지 시)
-    let targetFreq = note.freq;
+
+    // 배음/서브옥타브 감지 시 기본 주파수로 보정
     let actualPitch = pitch;
-    
-    // 옥타브 위로 감지된 경우 보정
-    const ratio = pitch / targetFreq;
+    const ratio = pitch / note.freq;
     if (ratio > 1.8 && ratio < 2.2) {
         actualPitch = pitch / 2;
     } else if (ratio > 0.45 && ratio < 0.55) {
         actualPitch = pitch * 2;
     }
-    
+
     // 센트 계산
-    const currentCents = 1200 * Math.log2(actualPitch / targetFreq);
-    
-    // 50센트 이상 벗어나면 무시
+    const currentCents = 1200 * Math.log2(actualPitch / note.freq);
+
+    // 50센트 이상 벗어나면 무시 (findClosestString이 이미 걸러내지만 이중 안전장치)
     if (Math.abs(currentCents) > 50) return;
-    
+
     cents = currentCents;
     detectedNote = note;
     detectedPitch = actualPitch;
@@ -463,23 +510,20 @@ function updateTuning(pitch) {
 function findClosestString(pitch, strings) {
     let best = null;
     let minCents = Infinity;
-    
+
+    // pitch와 str.freq를 같은 옥타브로 정규화하여 가장 가까운 줄 찾기
     for (const str of strings) {
-        // 기본 주파수 체크
-        let diff = Math.abs(1200 * Math.log2(pitch / str.freq));
-        if (diff < minCents) {
-            minCents = diff;
-            best = { ...str, target: str.freq };
-        }
-        
-        // 옥타브 위 체크 (배음)
-        diff = Math.abs(1200 * Math.log2(pitch / (str.freq * 2)));
-        if (diff < minCents) {
-            minCents = diff;
-            best = { ...str, target: str.freq };
+        // 기본 주파수 / 1옥타브 위(배음) / 1옥타브 아래 모두 고려
+        const candidates = [pitch, pitch / 2, pitch * 2];
+        for (const p of candidates) {
+            const diff = Math.abs(1200 * Math.log2(p / str.freq));
+            if (diff < minCents) {
+                minCents = diff;
+                best = { ...str };
+            }
         }
     }
-    
+
     // 50센트 이내의 매칭만 반환
     return minCents < 50 ? best : null;
 }
@@ -492,8 +536,7 @@ function findChromaticNote(pitch) {
     return {
         note: NOTE_STRINGS[roundedNote % 12],
         octave: Math.floor(roundedNote / 12) - 1,
-        freq: targetFreq,
-        target: targetFreq
+        freq: targetFreq
     };
 }
 
@@ -535,8 +578,9 @@ function renderUI() {
     octaveEl.textContent = detectedNote.octave;
     noteNameEl.classList.add('active');
     
-    // 주파수 표시
-    freqEl.textContent = detectedNote.freq.toFixed(1) + " Hz";
+    // 주파수 표시: 실제 감지 주파수 → 목표 주파수
+    freqEl.textContent = detectedPitch.toFixed(1) + " Hz";
+    targetNoteEl.textContent = "→ " + detectedNote.freq.toFixed(1) + " Hz";
     
     // 센트 표시
     if (isLocked) {
@@ -576,17 +620,19 @@ function animationLoop() {
     // 부드러운 바늘 움직임
     const lerp = isLocked ? 0.1 : 0.2;
     displayAngle += (targetAngle - displayAngle) * lerp;
-    
+
     // 아주 작은 움직임은 무시 (떨림 방지)
     if (Math.abs(targetAngle - displayAngle) < 0.3) {
         displayAngle = targetAngle;
     }
-    
+
     if (needleGroup) {
         needleGroup.setAttribute('transform', `rotate(${displayAngle}, 100, 100)`);
     }
-    
-    requestAnimationFrame(animationLoop);
+
+    if (isRunning) {
+        requestAnimationFrame(animationLoop);
+    }
 }
 
 // ===============================================
