@@ -77,6 +77,7 @@ let sourceNode = null;
 let highpassNode = null;
 let lowpassNode = null;
 let isRunning = false;
+let isStarting = false; // startTuner 중복 진입 방지 (권한 팝업 중 재클릭 등)
 
 // 버퍼 설정 - 저음 감지를 위해 큰 버퍼 사용
 const BUFFER_SIZE = 8192;
@@ -154,6 +155,8 @@ function handleInstClick(pill) {
         openModal();
         return;
     }
+    // 이미 선택된 악기를 다시 누르면 튜닝 상태를 리셋하지 않음
+    if (type === currentInstrument) return;
     activateInstrument(type, pill);
 }
 
@@ -211,13 +214,25 @@ function toggleTuner() {
 }
 
 async function startTuner() {
+    if (isStarting || isRunning) return;
+    isStarting = true;
+
     try {
-        if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: 48000
-            });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showError("HTTPS 환경에서만 마이크를 사용할 수 있습니다.");
+            return;
         }
-        
+
+        if (!audioContext) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            try {
+                audioContext = new Ctx({ sampleRate: 48000 });
+            } catch (e) {
+                // 생성자 옵션 미지원 브라우저(구형 Safari) 폴백
+                audioContext = new Ctx();
+            }
+        }
+
         if (audioContext.state === 'suspended') {
             await audioContext.resume();
         }
@@ -246,7 +261,9 @@ async function startTuner() {
         lowpassNode.Q.value = 0.5;
 
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = BUFFER_SIZE * 2;
+        // 읽기 버퍼와 동일한 크기여야 최신 샘플을 받음
+        // (fftSize > 버퍼 크기면 가장 오래된 구간만 복사되어 분석이 지연됨)
+        analyser.fftSize = BUFFER_SIZE;
         analyser.smoothingTimeConstant = 0;
 
         sourceNode.connect(highpassNode);
@@ -264,7 +281,27 @@ async function startTuner() {
 
     } catch (e) {
         console.error('Microphone error:', e);
-        showError("마이크 접근 권한이 필요합니다.");
+        // 부분적으로 생성된 스트림/노드 정리 및 UI 복구
+        stopTuner();
+        showError(getMicErrorMessage(e));
+    } finally {
+        isStarting = false;
+    }
+}
+
+function getMicErrorMessage(e) {
+    switch (e && e.name) {
+        case 'NotAllowedError':
+        case 'SecurityError':
+            return "마이크 접근 권한이 필요합니다.";
+        case 'NotFoundError':
+        case 'OverconstrainedError':
+            return "사용 가능한 마이크를 찾을 수 없습니다.";
+        case 'NotReadableError':
+        case 'AbortError':
+            return "마이크를 사용할 수 없습니다. 다른 앱에서 사용 중인지 확인하세요.";
+        default:
+            return "마이크를 시작할 수 없습니다.";
     }
 }
 
@@ -306,7 +343,11 @@ function resetState() {
     pitchHistory.length = 0;
     targetAngle = 0;
     displayAngle = 0;
-    
+    // 애니메이션 루프가 멈춘 뒤에도 바늘이 중앙으로 돌아오도록 직접 갱신
+    if (needleGroup) {
+        needleGroup.setAttribute('transform', 'rotate(0, 100, 100)');
+    }
+
     noteNameEl.textContent = "--";
     octaveEl.textContent = "";
     noteNameEl.classList.remove('active');
@@ -346,6 +387,9 @@ function processAudio() {
         if (silenceFrames === SILENCE_IDLE_FRAMES + 1) {
             document.body.className = "";
             targetAngle = 0;
+            // 직전 튜닝 안내문("PERFECT" 등)이 남지 않도록 복귀
+            guideMsg.textContent = "PLAY A STRING";
+            guideMsg.style.color = "var(--text-muted)";
         }
         requestAnimationFrame(processAudio);
         return;
@@ -389,9 +433,12 @@ function detectPitch(buffer, sampleRate, minFreq, maxFreq) {
     for (let i = 0; i <= maxTau; i++) yinBuffer[i] = 0;
 
     // Step 1: 차이 함수
+    // 분석 윈도 크기 제한: 최저음(35Hz, 주기 ≈1371샘플)의 3주기 이상이면 충분.
+    // 전체 버퍼를 쓰면 프레임당 수백만 회 연산으로 모바일에서 프레임 드랍 발생.
+    const windowSize = Math.min(bufferSize - maxTau, 4096);
     for (let tau = 1; tau <= maxTau; tau++) {
         let sum = 0;
-        for (let i = 0; i < bufferSize - maxTau; i++) {
+        for (let i = 0; i < windowSize; i++) {
             const diff = buffer[i] - buffer[i + tau];
             sum += diff * diff;
         }
