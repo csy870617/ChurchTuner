@@ -94,14 +94,20 @@ const yinBuffer = new Float32Array(YIN_BUFFER_SIZE);
 // ===============================================
 let detectedPitch = 0;
 let detectedNote = null;
-let cents = 0;
+let cents = 0;            // 화면/바늘에 쓰는 부드럽게 스무딩된 센트
+let smoothedCents = 0;    // 센트 EMA 누적값
 let isLocked = false;
 let lockCounter = 0;
 let silenceFrames = 0;
 
+// 음 확정(focus) 상태: 다른 음으로 튀어도 곧바로 바꾸지 않고 확인 후 전환
+let committedNoteKey = null;
+let pendingNoteKey = null;
+let pendingNoteCount = 0;
+
 // 스무딩 버퍼
 const pitchHistory = [];
-const PITCH_HISTORY_SIZE = 5;
+const PITCH_HISTORY_SIZE = 6;
 
 // UI 상태
 let displayAngle = 0;
@@ -111,9 +117,15 @@ let targetAngle = 0;
 const LOCK_CENTS = 3;
 const UNLOCK_CENTS = 10;
 const LOCK_FRAMES_NEEDED = 5;
-const SILENCE_THRESHOLD = 0.01;
-const SILENCE_RESET_FRAMES = 15;  // 이 프레임 이후 피치 히스토리 리셋
-const SILENCE_IDLE_FRAMES = 40;   // 이 프레임 이후 UI 초기 상태로 복귀
+const SILENCE_THRESHOLD = 0.012;   // 잔잔한 배경 소음 무시 (약간 상향)
+const SILENCE_RESET_FRAMES = 15;   // 이 프레임 이후 피치 히스토리 리셋
+const SILENCE_IDLE_FRAMES = 40;    // 이 프레임 이후 UI 초기 상태로 복귀
+
+// 튜닝 품질 관련 상수
+const MIN_CLARITY = 0.78;          // 이 이상 명료도(주기성)만 음으로 인정 → 비주기적 소음 거부
+const NOTE_CONFIRM_FRAMES = 3;     // 다른 음으로 전환하려면 연속 확인이 필요한 프레임 수
+const CENTS_SMOOTHING = 0.25;      // 센트 EMA 계수 (낮을수록 부드러움)
+const NEEDLE_DEADZONE = 1.5;       // 이 센트 이내는 중앙으로 (바늘 미세 떨림 방지)
 
 // ===============================================
 // DOM 요소
@@ -345,9 +357,13 @@ function resetState() {
     detectedPitch = 0;
     detectedNote = null;
     cents = 0;
+    smoothedCents = 0;
     isLocked = false;
     lockCounter = 0;
     silenceFrames = 0;
+    committedNoteKey = null;
+    pendingNoteKey = null;
+    pendingNoteCount = 0;
     pitchHistory.length = 0;
     targetAngle = 0;
     displayAngle = 0;
@@ -391,6 +407,10 @@ function processAudio() {
             pitchHistory.length = 0;
             isLocked = false;
             lockCounter = 0;
+            // 소리가 끊기면 음 확정도 해제 → 다음에 연주하는 음을 즉시 잡음
+            committedNoteKey = null;
+            pendingNoteKey = null;
+            pendingNoteCount = 0;
         }
         if (silenceFrames === SILENCE_IDLE_FRAMES + 1) {
             document.body.className = "";
@@ -495,9 +515,11 @@ function detectPitch(buffer, sampleRate, minFreq, maxFreq) {
             }
         }
     }
-    
-    // 신뢰도 체크
-    if (bestTau === -1 || bestVal > 0.5) {
+
+    // 명료도(주기성) 체크: 1 - bestVal 이 명료도.
+    // 말소리·잡음 등 비주기적 신호는 bestVal이 커서 여기서 걸러짐.
+    // (기존 0.5는 너무 관대해 소음에도 반응했음)
+    if (bestTau === -1 || (1 - bestVal) < MIN_CLARITY) {
         return -1;
     }
     
@@ -553,13 +575,52 @@ function updateTuning(pitch) {
     // 50센트 이상 벗어나면 무시 (findClosestString이 이미 걸러내지만 이중 안전장치)
     if (Math.abs(currentCents) > 50) return;
 
-    cents = currentCents;
+    // --- 음 확정(focus): 한 번 튀는 잡음으로 표시 음이 바뀌지 않도록 ---
+    const noteKey = note.note + note.octave;
+    let noteJustChanged = false;
+
+    if (committedNoteKey === null) {
+        // 첫 감지는 즉시 확정
+        committedNoteKey = noteKey;
+        noteJustChanged = true;
+    } else if (noteKey !== committedNoteKey) {
+        // 현재 확정된 음과 다른 음이 들어옴 → 연속으로 확인될 때만 전환
+        if (pendingNoteKey === noteKey) {
+            pendingNoteCount++;
+        } else {
+            pendingNoteKey = noteKey;
+            pendingNoteCount = 1;
+        }
+        if (pendingNoteCount >= NOTE_CONFIRM_FRAMES) {
+            committedNoteKey = noteKey;
+            pendingNoteKey = null;
+            pendingNoteCount = 0;
+            noteJustChanged = true;
+        } else {
+            // 아직 확정 전 → 직전 표시 유지(흔들림 방지)
+            return;
+        }
+    } else {
+        // 확정된 음과 동일 → 대기 후보 해제
+        pendingNoteKey = null;
+        pendingNoteCount = 0;
+    }
+
+    // --- 센트 스무딩(EMA): 바늘/숫자 떨림 방지 ---
+    if (noteJustChanged) {
+        // 음이 바뀌면 새 값에서 시작(이전 음에서 쓸어오는 현상 방지)
+        smoothedCents = currentCents;
+    } else {
+        smoothedCents += (currentCents - smoothedCents) * CENTS_SMOOTHING;
+    }
+
+    cents = smoothedCents;
     detectedNote = note;
     detectedPitch = actualPitch;
-    
+
     // 잠금 로직
     updateLockState();
-    
+
     // UI 업데이트
     renderUI();
 }
@@ -620,7 +681,8 @@ function updateLockState() {
     }
     
     // 바늘 각도 계산
-    if (isLocked) {
+    // 잠금 상태이거나 데드존(거의 정중앙) 안이면 바늘을 중앙에 고정 → 미세 떨림 제거
+    if (isLocked || Math.abs(cents) < NEEDLE_DEADZONE) {
         targetAngle = 0;
     } else {
         targetAngle = Math.max(-60, Math.min(60, cents * 1.5));
