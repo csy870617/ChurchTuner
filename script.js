@@ -84,8 +84,9 @@ const BUFFER_SIZE = 8192;
 let audioBuffer = new Float32Array(BUFFER_SIZE);
 
 // YIN 알고리즘용 재사용 버퍼 (가장 낮은 주파수 기준 크기)
-// 35Hz 기준: 48000/35 ≈ 1372, 안전 마진 포함
-const YIN_BUFFER_SIZE = 2048;
+// 비표준 샘플레이트 대비: 최악 96kHz / 최저음 35Hz ≈ 2743 샘플까지 커버
+// (48kHz만 가정하면 96kHz 장치에서 베이스/첼로 감지가 조용히 죽음)
+const YIN_BUFFER_SIZE = 4096;
 const yinBuffer = new Float32Array(YIN_BUFFER_SIZE);
 
 // ===============================================
@@ -145,6 +146,13 @@ function init() {
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+    });
+    // 모바일에서 백그라운드 전환 시 AudioContext가 suspend된 뒤 복귀해도
+    // 자동 resume되지 않아 튜너가 멈춘 것처럼 보이는 문제 복구
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && isRunning && audioContext && audioContext.state === 'suspended') {
+            audioContext.resume().catch(() => {});
+        }
     });
     generateModalList();
 }
@@ -433,9 +441,11 @@ function detectPitch(buffer, sampleRate, minFreq, maxFreq) {
     for (let i = 0; i <= maxTau; i++) yinBuffer[i] = 0;
 
     // Step 1: 차이 함수
-    // 분석 윈도 크기 제한: 최저음(35Hz, 주기 ≈1371샘플)의 3주기 이상이면 충분.
+    // 분석 윈도 크기 제한: 최저음의 약 3주기(3*maxTau)면 충분.
+    // 48kHz에서는 기존과 동일하게 최소 4096을 유지하고, 96kHz 등 고샘플레이트에서는
+    // 버퍼가 허용하는 범위 내에서 주기 수를 더 확보(저음 감지 신뢰도 유지).
     // 전체 버퍼를 쓰면 프레임당 수백만 회 연산으로 모바일에서 프레임 드랍 발생.
-    const windowSize = Math.min(bufferSize - maxTau, 4096);
+    const windowSize = Math.min(bufferSize - maxTau, Math.max(4096, 3 * maxTau));
     for (let tau = 1; tau <= maxTau; tau++) {
         let sum = 0;
         for (let i = 0; i < windowSize; i++) {
