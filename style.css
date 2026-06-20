@@ -25,9 +25,10 @@ body {
     background: var(--bg-gradient);
     color: var(--text-primary);
     font-family: 'Inter', sans-serif;
-    height: 100vh; 
+    height: 100vh; /* 폴백 */
+    height: 100dvh; /* 모바일 주소창에 따른 하단 컨트롤 잘림 방지 */
     overflow: hidden;
-    display: flex; 
+    display: flex;
     justify-content: center;
     transition: background 0.3s ease;
 }
@@ -345,15 +346,18 @@ footer {
     display: flex; 
     align-items: center; 
     justify-content: center; 
-    z-index: 1000; 
-    opacity: 1; 
-    transition: opacity 0.3s; 
-    padding: 20px; 
+    z-index: 1000;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.3s, visibility 0.3s;
+    padding: 20px;
 }
 
-.modal.hidden { 
-    opacity: 0; 
-    pointer-events: none; 
+.modal.hidden {
+    opacity: 0;
+    /* 숨김 상태에서 Tab 키로 모달 내부 버튼에 포커스되는 문제 차단 (페이드 전환은 유지) */
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .modal-glass { 
