@@ -78,6 +78,7 @@ let highpassNode = null;
 let lowpassNode = null;
 let isRunning = false;
 let isStarting = false; // startTuner 중복 진입 방지 (권한 팝업 중 재클릭 등)
+let sessionId = 0; // 정지/시작을 빠르게 반복해도 이전 루프가 살아남지 않도록 하는 세대 토큰
 
 // 버퍼 설정 - 저음 감지를 위해 큰 버퍼 사용
 const BUFFER_SIZE = 8192;
@@ -162,8 +163,14 @@ function init() {
     // 모바일에서 백그라운드 전환 시 AudioContext가 suspend된 뒤 복귀해도
     // 자동 resume되지 않아 튜너가 멈춘 것처럼 보이는 문제 복구
     document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && isRunning && audioContext && audioContext.state === 'suspended') {
-            audioContext.resume().catch(() => {});
+        if (!document.hidden && isRunning && audioContext) {
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().catch(() => {});
+            } else if (audioContext.state === 'closed') {
+                // 장시간 백그라운드 등으로 브라우저가 컨텍스트를 완전히 닫아버리면
+                // resume이 불가능해 튜너가 "켜진 채로 멈춘" 상태가 되므로 정지 상태로 복구
+                stopTuner();
+            }
         }
     });
     generateModalList();
@@ -243,7 +250,9 @@ async function startTuner() {
             return;
         }
 
-        if (!audioContext) {
+        if (!audioContext || audioContext.state === 'closed') {
+            // 'closed'는 장시간 백그라운드 등으로 브라우저가 컨텍스트를 완전히
+            // 닫아버린 경우로, resume이 불가능하므로 새로 만들어야 함
             const Ctx = window.AudioContext || window.webkitAudioContext;
             try {
                 audioContext = new Ctx({ sampleRate: 48000 });
@@ -291,13 +300,15 @@ async function startTuner() {
         lowpassNode.connect(analyser);
 
         isRunning = true;
+        sessionId++;
+        const session = sessionId; // 이 세션에서 시작한 루프인지 식별하는 토큰
         startBtn.classList.add('active');
         btnText.textContent = "DEACTIVATE";
         statusDot.classList.add('active');
         guideMsg.textContent = "PLAY A STRING";
 
-        processAudio();
-        requestAnimationFrame(animationLoop);
+        processAudio(session);
+        requestAnimationFrame(() => animationLoop(session));
 
     } catch (e) {
         console.error('Microphone error:', e);
@@ -332,6 +343,7 @@ function showError(message) {
 
 function stopTuner() {
     isRunning = false;
+    sessionId++; // 진행 중이던 루프(들)를 모두 무효화 (정지 직후 재시작해도 이전 루프가 되살아나지 않도록)
     startBtn.classList.remove('active');
     btnText.textContent = "ACTIVATE";
     statusDot.classList.remove('active');
@@ -386,8 +398,8 @@ function resetState() {
 // ===============================================
 // 메인 오디오 처리 루프
 // ===============================================
-function processAudio() {
-    if (!isRunning) return;
+function processAudio(session) {
+    if (!isRunning || session !== sessionId) return;
 
     analyser.getFloatTimeDomainData(audioBuffer);
 
@@ -419,7 +431,7 @@ function processAudio() {
             guideMsg.textContent = "PLAY A STRING";
             guideMsg.style.color = "var(--text-muted)";
         }
-        requestAnimationFrame(processAudio);
+        requestAnimationFrame(() => processAudio(session));
         return;
     }
 
@@ -443,7 +455,7 @@ function processAudio() {
         }
     }
 
-    requestAnimationFrame(processAudio);
+    requestAnimationFrame(() => processAudio(session));
 }
 
 // ===============================================
@@ -735,7 +747,9 @@ function renderUI() {
 // ===============================================
 // 애니메이션 루프
 // ===============================================
-function animationLoop() {
+function animationLoop(session) {
+    if (session !== sessionId) return; // 이전 세션의 잔여 루프는 여기서 종료
+
     // 부드러운 바늘 움직임
     const lerp = isLocked ? 0.1 : 0.2;
     displayAngle += (targetAngle - displayAngle) * lerp;
@@ -750,7 +764,7 @@ function animationLoop() {
     }
 
     if (isRunning) {
-        requestAnimationFrame(animationLoop);
+        requestAnimationFrame(() => animationLoop(session));
     }
 }
 
