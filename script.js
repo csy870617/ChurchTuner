@@ -275,6 +275,19 @@ async function startTuner() {
             }
         });
 
+        // 마이크가 외부 요인(장치 분리, OS 권한 회수, 다른 앱 점유)으로 끊기면
+        // 브라우저가 트랙에 'ended'를 발생시킴. 처리하지 않으면 튜너가
+        // "켜진 채 반응 없는" 상태로 남으므로 정지 상태로 복구한다.
+        const stream = mediaStream;
+        stream.getTracks().forEach(track => {
+            track.addEventListener('ended', () => {
+                if (isRunning && mediaStream === stream) {
+                    stopTuner();
+                    showError("마이크 연결이 끊어졌습니다.");
+                }
+            });
+        });
+
         sourceNode = audioContext.createMediaStreamSource(mediaStream);
 
         // 간단한 필터 체인
