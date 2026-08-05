@@ -115,9 +115,9 @@ let displayAngle = 0;
 let targetAngle = 0;
 
 // 상수
-const LOCK_CENTS = 3;
-const UNLOCK_CENTS = 10;
-const LOCK_FRAMES_NEEDED = 5;
+const LOCK_CENTS = 5;              // ±5센트 이내면 OK 판정 (일반 튜너 수준의 관대한 허용치)
+const UNLOCK_CENTS = 12;
+const LOCK_FRAMES_NEEDED = 4;      // OK 판정까지 필요한 연속 프레임 (살짝 빨리 잠김)
 const SILENCE_THRESHOLD = 0.012;   // 잔잔한 배경 소음 무시 (약간 상향)
 const SILENCE_RESET_FRAMES = 15;   // 이 프레임 이후 피치 히스토리 리셋
 const SILENCE_IDLE_FRAMES = 40;    // 이 프레임 이후 UI 초기 상태로 복귀
@@ -125,8 +125,8 @@ const SILENCE_IDLE_FRAMES = 40;    // 이 프레임 이후 UI 초기 상태로 �
 // 튜닝 품질 관련 상수
 const MIN_CLARITY = 0.78;          // 이 이상 명료도(주기성)만 음으로 인정 → 비주기적 소음 거부
 const NOTE_CONFIRM_FRAMES = 3;     // 다른 음으로 전환하려면 연속 확인이 필요한 프레임 수
-const CENTS_SMOOTHING = 0.25;      // 센트 EMA 계수 (낮을수록 부드러움)
-const NEEDLE_DEADZONE = 1.5;       // 이 센트 이내는 중앙으로 (바늘 미세 떨림 방지)
+const CENTS_SMOOTHING = 0.18;      // 센트 EMA 계수 (낮을수록 부드러움)
+const NEEDLE_DEADZONE = 2.5;       // 이 센트 이내는 중앙으로 (바늘 미세 떨림 방지)
 
 // ===============================================
 // DOM 요소
