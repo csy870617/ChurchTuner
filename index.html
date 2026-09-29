@@ -2,79 +2,102 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Church Tuner Pro</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=4.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0b0c0f">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="Church Tuner — guitar, bass, ukulele, violin, cello and chromatic tuner.">
+    <title>Church Tuner</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0c0f'/%3E%3Cpath d='M16 7v18M10.5 12.5h11' stroke='%233ddc97' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=5.0">
 </head>
 <body>
-    <div class="app-container">
-        <header>
-            <div class="brand-bar">
-                <span class="logo-icon">✝️</span>
-                <span class="logo-text">CHURCH TUNER</span>
-                <div id="status-dot"></div>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M12 4v16M7.5 9h9"/></svg>
+                </span>
+                <span class="brand-name">Church Tuner</span>
+            </div>
+            <div class="status">
+                <span id="status-dot" aria-hidden="true"></span>
+                <span id="status-text">Off</span>
             </div>
         </header>
 
-        <main>
-            <div class="tuner-display-area">
-                <div id="guide-msg">TAP START TO TUNE</div>
+        <main class="stage">
+            <p id="guide-msg" class="guide" aria-live="polite">Tap start to tune</p>
 
-                <div class="note-wrapper">
-                    <span id="note-name">--</span>
-                    <span id="octave"></span>
+            <div class="note" aria-label="Detected note">
+                <span id="note-name" class="note-letter"></span>
+                <span class="note-meta">
+                    <span id="note-accidental" class="note-accidental"></span>
+                    <span id="octave" class="note-octave"></span>
+                </span>
+            </div>
+
+            <div class="meter">
+                <svg class="gauge" viewBox="0 0 240 138" aria-hidden="true">
+                    <g id="gauge-ticks"></g>
+                    <g id="needle-group" transform="rotate(0 120 128)">
+                        <line class="needle" x1="120" y1="128" x2="120" y2="34"/>
+                    </g>
+                    <circle class="needle-hub" cx="120" cy="128" r="6"/>
+                </svg>
+            </div>
+
+            <div class="readout">
+                <div class="readout-cell">
+                    <span class="readout-label">Cents</span>
+                    <span id="cents" class="readout-value readout-cents">—</span>
                 </div>
-                
-                <div class="gauge-container">
-                    <svg class="gauge-svg" viewBox="0 0 200 100">
-                        <path class="gauge-track" d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke-width="4" stroke-linecap="round"/>
-                        <line class="center-marker" x1="100" y1="10" x2="100" y2="28" stroke-width="3" stroke-linecap="round"/>
-                        <g id="needle-group" transform="rotate(0, 100, 100)">
-                            <line class="needle" x1="100" y1="100" x2="100" y2="18" stroke-width="4" stroke-linecap="round"/>
-                            <circle class="needle-base" cx="100" cy="100" r="8" />
-                        </g>
-                    </svg>
-                    <div class="cents-display" id="cents">0¢</div>
+                <div class="readout-cell">
+                    <span class="readout-label">Detected</span>
+                    <span id="frequency" class="readout-value">— Hz</span>
+                </div>
+                <div class="readout-cell">
+                    <span class="readout-label">Target</span>
+                    <span id="target-note" class="readout-value">— Hz</span>
                 </div>
             </div>
 
-            <div class="frequency-info">
-                <span id="frequency">0.0 Hz</span>
-                <span id="target-note"></span>
-            </div>
+            <div id="string-row" class="strings" aria-hidden="true"></div>
         </main>
 
-        <footer>
-            <div class="control-panel">
-                <button id="start-btn">
-                    <div class="btn-content">
-                        <span class="mic-icon">🎙️</span>
-                        <span class="btn-text">ACTIVATE</span>
-                    </div>
+        <footer class="dock">
+            <div class="segmented" role="group" aria-label="Instrument">
+                <button type="button" class="inst-pill active" data-type="guitar" aria-pressed="true">Guitar</button>
+                <button type="button" class="inst-pill" data-type="bass" aria-pressed="false">Bass</button>
+                <button type="button" class="inst-pill" id="dynamic-inst-card" data-type="select" aria-pressed="false" aria-haspopup="dialog">
+                    <span id="dyn-name">More</span>
+                    <svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5"/></svg>
                 </button>
-                
-                <div class="instrument-selector" role="group" aria-label="Instrument selector">
-                    <button type="button" class="inst-pill active" data-type="guitar" aria-pressed="true">🎸 GUITAR</button>
-                    <button type="button" class="inst-pill" data-type="bass" aria-pressed="false">🪕 BASS</button>
-                    <button type="button" class="inst-pill" id="dynamic-inst-card" data-type="select" aria-pressed="false" aria-haspopup="dialog">
-                        <span id="dyn-icon">🎵</span> <span id="dyn-name">MORE</span>
-                    </button>
-                </div>
             </div>
+            <button id="start-btn" type="button" class="primary-btn">
+                <svg class="mic" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="9" y="3" width="6" height="11" rx="3"/>
+                    <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>
+                </svg>
+                <span class="btn-text">Start tuning</span>
+            </button>
         </footer>
     </div>
 
-    <div id="inst-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
-        <div class="modal-glass">
-            <div class="modal-header">
-                <h3 id="modal-title">SELECT INSTRUMENT</h3>
-                <button id="close-modal" type="button" aria-label="Close instrument selector">✕</button>
+    <div id="inst-modal" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
+        <div class="sheet-panel">
+            <div class="sheet-header">
+                <h2 id="modal-title">Instrument</h2>
+                <button id="close-modal" type="button" aria-label="Close instrument selector">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                </button>
             </div>
-            <div id="modal-list" class="modal-list"></div>
+            <div id="modal-list" class="sheet-list"></div>
         </div>
     </div>
 
-    <script src="script.js?v=4.0"></script>
+    <script src="script.js?v=5.0"></script>
 </body>
 </html>
