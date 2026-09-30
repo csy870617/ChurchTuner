@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5.0">
+    <link rel="stylesheet" href="style.css?v=5.1">
 </head>
 <body>
     <div class="app">
@@ -31,7 +31,7 @@
         <main class="stage">
             <p id="guide-msg" class="guide" aria-live="polite">Tap start to tune</p>
 
-            <div class="note" aria-label="Detected note">
+            <div class="note" role="group" aria-label="Detected note">
                 <span id="note-name" class="note-letter"></span>
                 <span class="note-meta">
                     <span id="note-accidental" class="note-accidental"></span>
@@ -98,6 +98,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=5.0"></script>
+    <script src="script.js?v=5.1"></script>
 </body>
 </html>

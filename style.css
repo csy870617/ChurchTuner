@@ -505,10 +505,12 @@ body.has-note .readout-cents { color: var(--state); }
     backdrop-filter: blur(6px);
     opacity: 1;
     visibility: visible;
-    transition: opacity 0.25s ease, visibility 0.25s ease;
+    /* 열 때는 즉시 보이게 해야 openModal()의 focus()가 먹힌다 (hidden 상태 요소는 포커스 불가) */
+    transition: opacity 0.25s ease, visibility 0s linear 0s;
 }
 
 .sheet.hidden {
+    transition: opacity 0.25s ease, visibility 0s linear 0.25s;
     opacity: 0;
     /* 숨김 상태에서 Tab 키로 시트 내부 버튼에 포커스되는 문제 차단 (페이드 전환은 유지) */
     visibility: hidden;

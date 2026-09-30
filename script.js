@@ -189,7 +189,9 @@ function init() {
     closeModalBtn.addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+        if (modal.classList.contains('hidden')) return;
+        if (e.key === 'Escape') closeModal();
+        else if (e.key === 'Tab') trapFocusInModal(e);
     });
     // 모바일에서 백그라운드 전환 시 AudioContext가 suspend된 뒤 복귀해도
     // 자동 resume되지 않아 튜너가 멈춘 것처럼 보이는 문제 복구
@@ -344,6 +346,24 @@ function openModal() {
     if (current) current.focus();
 }
 
+// 모달이 열린 동안 Tab 포커스가 뒤쪽 화면으로 빠져나가지 않도록 순환
+function trapFocusInModal(e) {
+    const items = modal.querySelectorAll('button');
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!modal.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+    }
+}
+
 function closeModal() {
     modal.classList.add('hidden');
     modal.setAttribute('aria-hidden', 'true');
@@ -381,9 +401,9 @@ async function startTuner() {
             audioContext = new Ctx();
         }
 
-        if (audioContext.state === 'suspended') {
-            await audioContext.resume();
-        }
+        // 정지 시 suspend()를 걸어 두므로 항상 resume한다. 직전의 suspend가 아직 진행 중이어도
+        // 명령이 순서대로 처리되어 running으로 끝난다 (state만 보고 판단하면 경쟁 상태가 생김).
+        await audioContext.resume();
 
         mediaStream = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -507,6 +527,10 @@ function stopTuner() {
     if (mediaStream) {
         mediaStream.getTracks().forEach(t => t.stop());
         mediaStream = null;
+    }
+    // 정지 중에는 오디오 장치를 쉬게 해 배터리 소모를 막음 (시작 시 resume)
+    if (audioContext && audioContext.state === 'running') {
+        audioContext.suspend().catch(() => {});
     }
     resetState();
     setGuide("Ready");
