@@ -177,6 +177,7 @@ const modal = document.getElementById('inst-modal');
 const modalList = document.getElementById('modal-list');
 const closeModalBtn = document.getElementById('close-modal');
 const dynName = document.getElementById('dyn-name');
+const themeToggle = document.getElementById('theme-toggle');
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -206,9 +207,45 @@ function init() {
             }
         }
     });
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true);
+        });
+    }
+    applyTheme(currentTheme(), false);
     buildGauge();
     generateModalList();
     renderStringChips();
+}
+
+// ===============================================
+// 라이트/다크 테마
+// ===============================================
+const THEME_KEY = 'churchtuner-theme';
+const THEME_COLORS = { light: '#f8f6f2', dark: '#111317' };
+
+function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function applyTheme(theme, save) {
+    if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', THEME_COLORS[theme]);
+
+    if (themeToggle) {
+        const label = theme === 'dark' ? 'Light mode' : 'Dark mode';
+        themeToggle.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+        themeToggle.setAttribute('aria-label', label);
+        themeToggle.setAttribute('title', label);
+    }
+
+    if (save) {
+        // 사생활 보호 모드 등에서 저장소 접근이 막혀도 전환 자체는 동작해야 함
+        try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* 저장 실패는 무시 */ }
+    }
 }
 
 function buildGauge() {

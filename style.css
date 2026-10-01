@@ -10,24 +10,67 @@
     --text-2: #5c6470;
     --text-3: #98a0aa;
     --shadow: 0 1px 2px rgba(31, 35, 41, 0.04), 0 6px 18px rgba(31, 35, 41, 0.06);
+    --pill-shadow: 0 1px 2px rgba(31, 35, 41, 0.08), 0 2px 6px rgba(31, 35, 41, 0.06);
 
     /* 밝은 배경에서도 대비가 충분한 상태 색 */
     --green: #14a06b;
     --blue: #2f7be0;
     --rose: #e0475f;
+    --green-soft: rgba(20, 160, 107, 0.1);
+    --blue-soft: rgba(47, 123, 224, 0.1);
+    --rose-soft: rgba(224, 71, 95, 0.1);
+    --neutral-soft: rgba(31, 35, 41, 0.04);
+    --dot-ring: rgba(20, 160, 107, 0.18);
+    --glow: 0 6px 24px rgba(20, 160, 107, 0.22);
+
+    --primary-bg: #1f2329;
+    --primary-fg: #ffffff;
+    --primary-shadow: 0 6px 16px rgba(31, 35, 41, 0.18);
+    --backdrop: rgba(31, 35, 41, 0.3);
 
     /* 현재 튜닝 상태 색 (body 클래스로 전환) */
     --state: var(--text-3);
-    --state-soft: rgba(31, 35, 41, 0.04);
+    --state-soft: var(--neutral-soft);
 
     --font: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
     color-scheme: light;
 }
 
-body.perfect { --state: var(--green); --state-soft: rgba(20, 160, 107, 0.1); }
-body.low     { --state: var(--blue);  --state-soft: rgba(47, 123, 224, 0.1); }
-body.high    { --state: var(--rose);  --state-soft: rgba(224, 71, 95, 0.1); }
-body.idle    { --state: var(--text-3); --state-soft: rgba(31, 35, 41, 0.04); }
+/* 다크 모드: 어두운 곳(무대·저녁 예배)에서 눈부심을 줄이도록 */
+:root[data-theme="dark"] {
+    --bg: #111317;
+    --bg-top: #171a1f;
+    --surface: #1a1d22;
+    --surface-2: #23272d;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --text: #f1f3f5;
+    --text-2: #a7aeb8;
+    --text-3: #6b737d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.25);
+    --pill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 3px rgba(0, 0, 0, 0.4);
+
+    --green: #3ddc97;
+    --blue: #5aa9ff;
+    --rose: #ff6f8e;
+    --green-soft: rgba(61, 220, 151, 0.12);
+    --blue-soft: rgba(90, 169, 255, 0.12);
+    --rose-soft: rgba(255, 111, 142, 0.12);
+    --neutral-soft: rgba(255, 255, 255, 0.05);
+    --dot-ring: rgba(61, 220, 151, 0.18);
+    --glow: 0 0 28px rgba(61, 220, 151, 0.28);
+
+    --primary-bg: #f1f3f5;
+    --primary-fg: #111317;
+    --primary-shadow: none;
+    --backdrop: rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+}
+
+body.perfect { --state: var(--green); --state-soft: var(--green-soft); }
+body.low     { --state: var(--blue);  --state-soft: var(--blue-soft); }
+body.high    { --state: var(--rose);  --state-soft: var(--rose-soft); }
+body.idle    { --state: var(--text-3); --state-soft: var(--neutral-soft); }
 
 * {
     box-sizing: border-box;
@@ -78,6 +121,7 @@ button { font-family: inherit; }
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     min-height: 44px;
 }
 
@@ -128,6 +172,42 @@ button { font-family: inherit; }
 
 body.running .status { color: var(--text-2); }
 
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#theme-toggle {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+#theme-toggle:hover { color: var(--text); }
+
+#theme-toggle svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* 지금 테마에서 "전환될" 모드의 아이콘을 보여줌: 라이트 → 달, 다크 → 해 */
+#theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] #theme-toggle .icon-sun { display: block; }
+:root[data-theme="dark"] #theme-toggle .icon-moon { display: none; }
+
 #status-dot {
     width: 7px;
     height: 7px;
@@ -138,7 +218,7 @@ body.running .status { color: var(--text-2); }
 
 #status-dot.active {
     background: var(--green);
-    box-shadow: 0 0 0 3px rgba(20, 160, 107, 0.18);
+    box-shadow: 0 0 0 3px var(--dot-ring);
     animation: pulse-dot 2s ease-in-out infinite;
 }
 
@@ -196,7 +276,7 @@ body.has-note:not(.idle) .guide { color: var(--state); }
 
 body.has-note .note-letter { color: var(--text); }
 body.perfect .note-letter { color: var(--green); }
-body.locked .note-letter { text-shadow: 0 6px 24px rgba(20, 160, 107, 0.22); }
+body.locked .note-letter { text-shadow: var(--glow); }
 
 /* 음이 없을 때: 큰 대시 글자 대신 얇은 자리표시 막대 */
 .note-letter:empty {
@@ -441,7 +521,7 @@ body.has-note .readout-cents { color: var(--state); }
 .inst-pill.active {
     background: var(--surface);
     color: var(--text);
-    box-shadow: 0 1px 2px rgba(31, 35, 41, 0.08), 0 2px 6px rgba(31, 35, 41, 0.06);
+    box-shadow: var(--pill-shadow);
 }
 
 .chev {
@@ -464,9 +544,9 @@ body.has-note .readout-cents { color: var(--state); }
     gap: 10px;
     border: 1px solid transparent;
     border-radius: 16px;
-    background: var(--text);
-    color: #ffffff;
-    box-shadow: 0 6px 16px rgba(31, 35, 41, 0.18);
+    background: var(--primary-bg);
+    color: var(--primary-fg);
+    box-shadow: var(--primary-shadow);
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
@@ -494,6 +574,7 @@ body.has-note .readout-cents { color: var(--state); }
 .inst-pill:focus-visible,
 .primary-btn:focus-visible,
 #close-modal:focus-visible,
+#theme-toggle:focus-visible,
 .inst-option:focus-visible {
     outline: 2px solid var(--blue);
     outline-offset: 2px;
@@ -507,7 +588,7 @@ body.has-note .readout-cents { color: var(--state); }
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: rgba(31, 35, 41, 0.3);
+    background: var(--backdrop);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     opacity: 1;
@@ -715,6 +796,12 @@ body.has-note .readout-cents { color: var(--state); }
 
 @media (max-width: 350px) {
     .app { padding-left: 14px; padding-right: 14px; }
+    .topbar { gap: 8px; }
+    .brand { gap: 8px; }
+    .brand-mark { width: 26px; height: 26px; }
+    .brand-name { font-size: 14px; }
+    .topbar-actions { gap: 6px; }
+    .status { padding: 6px 9px; gap: 6px; }
     .readout-value { font-size: 15px; }
     .string-chip { min-width: 36px; padding: 0 7px; }
     .inst-pill { font-size: 13px; }
