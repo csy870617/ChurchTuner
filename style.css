@@ -1,29 +1,33 @@
 :root {
-    --bg: #0b0c0f;
-    --surface: #14161a;
-    --surface-2: #1c1f24;
-    --line: rgba(255, 255, 255, 0.07);
-    --line-strong: rgba(255, 255, 255, 0.14);
-    --text: #f3f4f6;
-    --text-2: #a3a9b2;
-    --text-3: #626973;
+    /* 밝고 따뜻한 종이 톤: 눈부시지 않으면서 어둡지 않게 */
+    --bg: #f5f3ef;
+    --bg-top: #fbfaf7;
+    --surface: #ffffff;
+    --surface-2: #edeae4;
+    --line: rgba(31, 35, 41, 0.08);
+    --line-strong: rgba(31, 35, 41, 0.16);
+    --text: #1f2329;
+    --text-2: #5c6470;
+    --text-3: #98a0aa;
+    --shadow: 0 1px 2px rgba(31, 35, 41, 0.04), 0 6px 18px rgba(31, 35, 41, 0.06);
 
-    --green: #3ddc97;
-    --blue: #5aa9ff;
-    --rose: #ff6f8e;
+    /* 밝은 배경에서도 대비가 충분한 상태 색 */
+    --green: #14a06b;
+    --blue: #2f7be0;
+    --rose: #e0475f;
 
     /* 현재 튜닝 상태 색 (body 클래스로 전환) */
     --state: var(--text-3);
-    --state-soft: rgba(255, 255, 255, 0.05);
+    --state-soft: rgba(31, 35, 41, 0.04);
 
     --font: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-    color-scheme: dark;
+    color-scheme: light;
 }
 
-body.perfect { --state: var(--green); --state-soft: rgba(61, 220, 151, 0.12); }
-body.low     { --state: var(--blue);  --state-soft: rgba(90, 169, 255, 0.12); }
-body.high    { --state: var(--rose);  --state-soft: rgba(255, 111, 142, 0.12); }
-body.idle    { --state: var(--text-3); --state-soft: rgba(255, 255, 255, 0.05); }
+body.perfect { --state: var(--green); --state-soft: rgba(20, 160, 107, 0.1); }
+body.low     { --state: var(--blue);  --state-soft: rgba(47, 123, 224, 0.1); }
+body.high    { --state: var(--rose);  --state-soft: rgba(224, 71, 95, 0.1); }
+body.idle    { --state: var(--text-3); --state-soft: rgba(31, 35, 41, 0.04); }
 
 * {
     box-sizing: border-box;
@@ -36,7 +40,7 @@ html, body { height: 100%; }
 
 body {
     background:
-        radial-gradient(120% 55% at 50% -10%, #171a20 0%, rgba(11, 12, 15, 0) 70%),
+        linear-gradient(180deg, var(--bg-top) 0%, var(--bg) 60%),
         var(--bg);
     color: var(--text);
     font-family: var(--font);
@@ -134,7 +138,7 @@ body.running .status { color: var(--text-2); }
 
 #status-dot.active {
     background: var(--green);
-    box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.18);
+    box-shadow: 0 0 0 3px rgba(20, 160, 107, 0.18);
     animation: pulse-dot 2s ease-in-out infinite;
 }
 
@@ -192,7 +196,7 @@ body.has-note:not(.idle) .guide { color: var(--state); }
 
 body.has-note .note-letter { color: var(--text); }
 body.perfect .note-letter { color: var(--green); }
-body.locked .note-letter { text-shadow: 0 0 28px rgba(61, 220, 151, 0.28); }
+body.locked .note-letter { text-shadow: 0 6px 24px rgba(20, 160, 107, 0.22); }
 
 /* 음이 없을 때: 큰 대시 글자 대신 얇은 자리표시 막대 */
 .note-letter:empty {
@@ -299,7 +303,7 @@ body.perfect:not(.idle) .gauge-zone { opacity: 0.4; }
 }
 
 .needle-hub {
-    fill: var(--bg);
+    fill: var(--surface);
     stroke: var(--state);
     stroke-width: 3;
     transition: stroke 0.2s ease;
@@ -313,6 +317,7 @@ body.perfect:not(.idle) .gauge-zone { opacity: 0.4; }
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 16px;
+    box-shadow: var(--shadow);
 }
 
 .readout-cell {
@@ -402,7 +407,7 @@ body.has-note .readout-cents { color: var(--state); }
     grid-template-columns: repeat(3, 1fr);
     gap: 4px;
     padding: 4px;
-    background: var(--surface);
+    background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 14px;
 }
@@ -434,9 +439,9 @@ body.has-note .readout-cents { color: var(--state); }
 .inst-pill:hover { color: var(--text); }
 
 .inst-pill.active {
-    background: var(--surface-2);
+    background: var(--surface);
     color: var(--text);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 3px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 1px 2px rgba(31, 35, 41, 0.08), 0 2px 6px rgba(31, 35, 41, 0.06);
 }
 
 .chev {
@@ -460,7 +465,8 @@ body.has-note .readout-cents { color: var(--state); }
     border: 1px solid transparent;
     border-radius: 16px;
     background: var(--text);
-    color: #0b0c0f;
+    color: #ffffff;
+    box-shadow: 0 6px 16px rgba(31, 35, 41, 0.18);
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
@@ -470,9 +476,10 @@ body.has-note .readout-cents { color: var(--state); }
 .primary-btn:active { transform: scale(0.985); }
 
 .primary-btn.active {
-    background: var(--surface-2);
+    background: var(--surface);
     border-color: var(--line-strong);
     color: var(--text);
+    box-shadow: var(--shadow);
 }
 
 .mic {
@@ -500,7 +507,7 @@ body.has-note .readout-cents { color: var(--state); }
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(31, 35, 41, 0.3);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     opacity: 1;
